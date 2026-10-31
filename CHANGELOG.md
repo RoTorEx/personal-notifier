@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.29] - 2026-10-31
+
 - Keep patched uv 0.13.4 in the dependency build stage only; remove unused
   global pip and build tools from the runtime image.
 
