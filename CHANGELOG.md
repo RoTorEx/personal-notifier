@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Keep patched uv 0.13.4 in the dependency build stage only; remove unused
+  global pip and build tools from the runtime image.
+
 - Add GitHub-hosted checks and wheel builds with a pinned public Core integration fixture.
 
 ## [0.1.28] - 2026-10-29
