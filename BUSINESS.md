@@ -76,7 +76,7 @@ relative work durations do not depend on a time zone.
 
 ## State and delivery
 
-The notifier owns ~/.local/state/remote-vibecoding-notifier/bot.db and its own
+The installed notifier owns /srv/remote-vibecoding/data/notifier/bot.db and its own
 process lock. It does not write Core's engine.db or legacy bot.db. Preserve legacy
 shared state and credentials outside Git, without running the old interactive
 poller. The notifier token is a mode-0600 file, separately configured and pinned
@@ -115,3 +115,7 @@ API boundary; config.py owns private settings; cli.py owns entrypoint/readiness;
 store.py owns SQLite support; Core owns shared Compose/deployment. Other UI,
 book, confirmation and formatting modules support legacy recovery/tests and are
 not imported by the production notifier entrypoint. Work personally; no subagents.
+
+Installed configuration/token files live in `/srv/remote-vibecoding/config/notifier`;
+its reviewed container manifest is installed by Core in the shared runtime room.
+Development checkouts and component histories remain independent.
