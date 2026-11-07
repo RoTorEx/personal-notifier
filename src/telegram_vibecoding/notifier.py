@@ -37,6 +37,37 @@ def duration(seconds: float | None) -> str:
     return (f"{hours}h " if hours else "") + (f"{minutes}m " if minutes or hours else "") + f"{seconds}s"
 
 
+# One status vocabulary shared with the web list colours: green done, red needs review,
+# yellow waiting for the owner, blue working.
+OUTCOMES = {
+    "completed": ("🟢", "Finished"),
+    "finished": ("🟢", "Finished"),
+    "failed": ("🔴", "Failed"),
+    "error": ("🔴", "Failed"),
+    "interrupted": ("🔴", "Interrupted"),
+    "uncertain": ("🔴", "Outcome uncertain"),
+}
+STATUSES = {
+    "idle": "Idle",
+    "working": "Working",
+    "connecting": "Working",
+    "transcribing": "Transcribing voice",
+    "waiting": "Waiting for you",
+    "failed": "Failed",
+    "interrupted": "Interrupted",
+    "uncertain": "Outcome uncertain",
+}
+
+
+def compact_path(path: str) -> str:
+    """Match the web list: the working directory and its parent."""
+    return "/".join([part for part in path.split("/") if part][-2:]) or "/"
+
+
+def plural(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
 class Notifier:
     def __init__(self, settings: Settings, bot=None, engine=None):
         self.settings = settings
@@ -70,7 +101,7 @@ class Notifier:
             ]
         )
 
-    async def send(self, text: str, sid: str | None = None):
+    async def send(self, text: str, sid: str | None = None, silent: bool = False):
         async with self.send_lock:
             return await self.bot.send_message(
                 self.settings.allowed_user_id,
@@ -78,7 +109,7 @@ class Notifier:
                 parse_mode=None,
                 reply_markup=self.markup(sid),
                 disable_web_page_preview=True,
-                disable_notification=False,
+                disable_notification=silent,
             )
 
     async def snapshot(self):
@@ -106,10 +137,21 @@ class Notifier:
             sid = session["id"]
             started = self.live.get(sid, {}).get("started")
             age = " · " + duration(time.time() - started) if started else ""
+            waiting_for_owner = session.get("pending_questions") or session.get("status") == "waiting"
+            status = session.get("status", "unknown")
+            marker = (
+                "🟡"
+                if waiting_for_owner
+                else "🔵"
+                if session in active
+                else "🔴"
+                if status in {"failed", "interrupted", "uncertain"}
+                else "🟢"
+            )
+            label = "Waiting for you" if waiting_for_owner else STATUSES.get(status, status.capitalize())
             text += (
-                f"\n\n{'❓' if session.get('pending_questions') else '⚙️' if session in active else '💬'} "
-                f"{session['name'][:80]} · {session.get('status', 'unknown')}{age}\n"
-                f"{session['cwd'][:160]}\n"
+                f"\n\n{marker} {session['name'][:80]} · {label}{age}\n"
+                f"{compact_path(session['cwd'])[:160]}\n"
                 f"{session.get('model') or 'Auto'} · {session.get('effort') or 'default effort'} · "
                 f"{session.get('collaboration_mode') or 'default'}"
             )
@@ -201,14 +243,20 @@ class Notifier:
         session = next((s for s in self.sessions if s["id"] == sid), {})
         if created >= start:
             payload = event.get("payload", {})
-            outcome = payload.get("status", "finished") if event["kind"] == "completed" else "input required"
-            icon = "❓" if event["kind"] == "question" else "✅" if outcome == "completed" else "⚠️"
+            if event["kind"] == "question":
+                icon, label = "🟡", "Needs your input"
+            else:
+                status = payload.get("status", "finished")
+                icon, label = OUTCOMES.get(status, ("🔴", status.capitalize()))
+            cwd = session.get("cwd")
+            # The session name leads: it is what the owner scans for in a notification list.
             text = (
-                f"{icon} {outcome}\n{session.get('name', sid)[:120]}\n"
-                f"📍 {self.settings.host_id} · {session.get('cwd', 'path unavailable')[:250]}\n"
-                f"🤖 {session.get('model') or 'Auto'} · {session.get('effort') or 'default effort'} · "
+                f"{icon} {session.get('name', sid)[:120]}\n"
+                f"{label} · {self.settings.host_id} · {compact_path(cwd) if cwd else 'path unavailable'}\n"
+                f"{session.get('model') or 'Auto'} · {session.get('effort') or 'default effort'} · "
                 f"{session.get('collaboration_mode') or 'default'}\n"
-                f"⏱ {duration(seconds)} · {work['inputs']} retained inputs in this run"
+                f"⏱ {duration(seconds) if seconds is not None else 'duration unavailable'} · "
+                f"{plural(work['inputs'], 'message')} in this run"
             )
             self.store.db.execute(
                 "INSERT OR IGNORE INTO notifier_notices(event_id,session_id,body,created) VALUES(?,?,?,?)",
@@ -255,7 +303,9 @@ class Notifier:
                     offset = now.strftime("%z")
                     stamp = f"{now:%Y-%m-%d %H:%M:%S} Warsaw ({now:%Z}, UTC{offset[:3]}:{offset[3:]})"
                     await self.send(
-                        f"Remote Vibecoding Notifier {__version__} online\nCore {self.health.get('version', 'unknown')} · {self.settings.host_id}\n{stamp}\nNotification-only; agent access is available in the private web workspace."
+                        f"Remote Vibecoding Notifier {__version__} online\nCore {self.health.get('version', 'unknown')} · {self.settings.host_id}\n{stamp}\nNotification-only; agent access is available in the private web workspace.",
+                        # Restarts are routine; only outcomes and questions should make a sound.
+                        silent=True,
                     )
                     self.store.set("notifier_boot", self.instance)
                 await self.collect()

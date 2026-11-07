@@ -171,7 +171,10 @@ async def test_atomic_cursor_stats_and_durable_notification_restart(tmp_path):
     messages = [call for call in transport.calls if isinstance(call, SendMessage)]
     assert len(messages) == 1
     message = messages[0]
-    assert "20s · 2 retained inputs" in message.text
+    assert message.text.split("\n")[0].startswith("🟢 ")
+    assert "Finished · " in message.text
+    assert "20s · 2 messages in this run" in message.text
+    assert message.disable_notification is False
     assert "native-model · high · plan" in message.text
     assert "Do not forward" not in message.text
     assert message.reply_markup.inline_keyboard[0][0].url == "https://vibecoding.com/#" + "a" * 16
@@ -201,8 +204,8 @@ async def test_no_historical_backfill_question_notice_and_missing_duration(tmp_p
     await app.collect()
     rows = app.store.rows("SELECT * FROM notifier_notices")
     assert [row["event_id"] for row in rows] == [2, 3]
-    assert "input required" in rows[0]["body"]
-    assert "unavailable" in rows[1]["body"]
+    assert rows[0]["body"].startswith("🟡 ") and "Needs your input" in rows[0]["body"]
+    assert "Interrupted · " in rows[1]["body"] and "duration unavailable" in rows[1]["body"]
     assert "private question" not in json.dumps(rows)
     assert not (tmp_path / "run").exists()
     app.store.close()

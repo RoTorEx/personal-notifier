@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Lead notices with the session name and a readable outcome, use the compact path and web status colours, and count "messages in this run".
+- Send the boot notice silently; outcome and question notices keep sound.
+- Show readable statuses, matching markers and compact paths in /status.
+
 ## [0.1.29] - 2026-10-31
 
 - Keep patched uv 0.13.4 in the dependency build stage only; remove unused

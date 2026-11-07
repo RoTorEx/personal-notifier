@@ -30,14 +30,19 @@ prompt rewriting, native permission change or Core implementation import exists.
 ## Notifications and links
 
 Send a boot notice, every new terminal outcome and questions requiring owner
-input. Do not suppress notices based on a remembered Telegram selection. Native
+input. The boot notice is silent because restarts are routine; outcome and
+question notices keep sound. Do not suppress notices based on a remembered Telegram selection. Native
 answer/prompt/reasoning bodies and files remain in the private web chat; Telegram
 receives metadata only. Every notice has a URL button to the exact captured
 session using web_url/#<native session id>. There are no executable callback
 buttons. Web access still requires the owner's VPN and browser trust.
 
-Notices show outcome, session, host/path, selected model, effort and mode, work
-duration and number of original/steering inputs in that run. Auto means Core did
+Notices lead with a status marker and the session name, then a readable outcome
+(Finished, Failed, Interrupted, Outcome uncertain or Needs your input), host and
+the compact working directory with its parent, selected model, effort and mode,
+work duration and the number of original/steering messages in that run. Markers
+match the web list colours: 🟢 finished, 🔴 needs review, 🟡 waiting for the
+owner and 🔵 working (in /status). Auto means Core did
 not report an explicit session model; never invent the resolved active model.
 Duration runs from the first retained user event after the previous terminal
 event to this terminal event. Steering does not reset it. Missing evidence is
@@ -67,7 +72,8 @@ enters this notice ledger. Boot identity remains per process.
 /start and unsupported owner messages explain the notification-only boundary.
 /status and /stats show host, active/waiting/session counts, observed input and
 outcome totals, accumulated completed work duration and up to eight recent
-sessions with path, model, reasoning, mode, status and elapsed active time.
+sessions with compact path, model, reasoning, mode, readable status and elapsed
+active time.
 The eight-row bound keeps the response inside Telegram's message limit; exact
 session work remains in the web UI. These commands never invoke inference.
 Do not claim token usage, billed cost, universal historical totals or an ETA.
