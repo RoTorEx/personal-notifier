@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-11-08
+
 - Lead notices with the session name and a readable outcome, use the compact path and web status colours, and count "messages in this run".
 - Send the boot notice silently; outcome and question notices keep sound.
 - Show readable statuses, matching markers and compact paths in /status.
