@@ -43,6 +43,7 @@ class QueueFeed:
         )
         offset = min(offset, max(0, len(visible) - 1))
         return {
+            "last_refresh": "2026-11-13T19:30:00Z",
             "total": len(visible),
             "offset": offset,
             "item": deepcopy(visible[offset]) if visible else None,
@@ -95,44 +96,43 @@ def action(message, text):
     )
 
 
-async def test_deck_vibecoding_alert_housing_carousel_and_separate_back(app):
+async def test_deck_housing_menu_then_carousel_and_separate_back(app):
     await app.handle(Update.model_validate(update(text="/menu")))
     deck = list(app.bot.session.messages.values())[-1]
     assert [[b.text for b in row] for row in deck.reply_markup.inline_keyboard] == [
-        ["Vibecoding"],
-        ["Housing"],
+        ["🛠 Vibecoding"],
+        ["🏠 Housing"],
     ]
     before = len(app.bot.session.calls)
     await app.handle(callback(deck, "vibecoding"))
     calls = app.bot.session.calls[before:]
     assert len(calls) == 1 and isinstance(calls[0], AnswerCallbackQuery)
-    assert calls[0].text == "Under construction" and calls[0].show_alert is True
-    assert not app.feeds["housing"].calls
+    assert calls[0].show_alert is True
     await app.handle(callback(deck, action(deck, "Housing")))
+    section = list(app.bot.session.messages.values())[-1]
+    assert not section.photo and not app.feeds["housing"].calls
+    assert [b.text for b in section.reply_markup.inline_keyboard[0]] == ["📋 Queue", "⭐ Favorites"]
+    await app.handle(callback(section, action(section, "Queue")))
     card = list(app.bot.session.messages.values())[-1]
     rows = card.reply_markup.inline_keyboard
-    assert [b.text for b in rows[0]] == ["✓ Viewed", "☆ Favorite"]
-    assert [b.text for b in rows[-1]] == ["← Back", "🏠 Deck"]
-    assert rows[-2][-1].text == "→"
-    assert rows[2][0].url.startswith("https://www.olx.pl/")
-    assert rows[2][1].copy_text.text == "+48501234567"
+    assert [b.text for b in rows[0]] == ["✓ Viewed", "☆ Favorite", "OLX"]
+    assert rows[0][2].url.startswith("https://www.olx.pl/")
+    assert rows[1][0].copy_text.text == "+48501234567"
+    assert "──────────\nQueue · 1 / 3\nLast refresh: 13.11 20:30 CET" in card.caption
     assert card.message_id == deck.message_id
-    original_id = card.message_id
-    await app.handle(callback(card, action(card, "→")))
-    changed = app.bot.session.messages[original_id]
+    await app.handle(callback(card, action(card, "➡️")))
+    changed = app.bot.session.messages[card.message_id]
     assert "Flat 1" in changed.caption
-    assert any(isinstance(m, EditMessageMedia) for m in app.bot.session.calls)
     await app.handle(callback(changed, action(changed, "Back")))
-    assert "Home deck" in (
-        list(app.bot.session.messages.values())[-1].caption
-        or list(app.bot.session.messages.values())[-1].text
-    )
-    assert list(app.bot.session.messages.values())[-1].message_id == original_id
+    section = list(app.bot.session.messages.values())[-1]
+    assert not section.photo and "Housing" in section.text
+    assert len(app.bot.session.messages) == 1
+    await app.handle(callback(section, action(section, "Back")))
+    assert "Home deck" in list(app.bot.session.messages.values())[-1].text
 
 
-async def test_viewed_favorite_empty_favorites_back_and_stale_controls(app):
-    await app.review.browse("housing", "queue")
-    card = list(app.bot.session.messages.values())[-1]
+async def test_viewed_removes_card_and_favorites_are_a_separate_collection(app):
+    card = await app.review.browse("housing", "queue")
     old = callback(card, action(card, "Favorite"))
     await app.handle(old)
     assert app.feeds["housing"].items[0]["favorite"] is True
@@ -144,19 +144,51 @@ async def test_viewed_favorite_empty_favorites_back_and_stale_controls(app):
     assert app.feeds["housing"].items[0]["viewed"] is True
     card = app.bot.session.messages[card.message_id]
     assert "Flat 1" in card.caption
-    await app.handle(callback(card, action(card, "Favorites")))
-    card = app.bot.session.messages[card.message_id]
-    assert "Flat 0" in card.caption
-    assert any("Unview" in b.text for row in card.reply_markup.inline_keyboard for b in row)
-    await app.handle(callback(card, action(card, "Back")))
-    card = app.bot.session.messages[card.message_id]
-    assert "Flat 1" in card.caption
+    assert not any("Favorites" in b.text for row in card.reply_markup.inline_keyboard for b in row)
+    favorites = await app.review.browse("housing", "favorites", message=card)
+    assert "Flat 0" in favorites.caption and action(favorites, "Unview")
     for i in app.feeds["housing"].items:
         i["viewed"] = True
-    await app.review.browse("housing", "queue", message=card)
-    empty = list(app.bot.session.messages.values())[-1]
-    assert "caught up" in (empty.caption or empty.text)
-    assert [b.text for b in empty.reply_markup.inline_keyboard[-1]] == ["← Back", "🏠 Deck"]
+    empty = await app.review.browse("housing", "queue", message=favorites)
+    assert "caught up" in empty.text and not empty.photo
+    assert [b.text for b in empty.reply_markup.inline_keyboard[-1]] == ["⬅️ Back", "🏠 Deck"]
+
+
+@pytest.mark.parametrize("offset", [0, 1, 2])
+async def test_unfavorite_keeps_current_card_undo_and_navigation_after_restart(app, offset):
+    from personal_notifier.review import ReviewUI
+
+    for item in app.feeds["housing"].items:
+        item["favorite"] = True
+    card = await app.review.browse("housing", "favorites", offset)
+    await app.handle(callback(card, action(card, "Favorite")))
+    card = app.bot.session.messages[card.message_id]
+    assert f"Flat {offset}" in card.caption and action(card, "☆ Favorite")
+    assert not app.feeds["housing"].items[offset]["favorite"]
+    app.review = ReviewUI(app)
+    await app.handle(callback(card, action(card, "Favorite")))
+    card = app.bot.session.messages[card.message_id]
+    assert f"Flat {offset}" in card.caption and action(card, "★ Favorite")
+    assert app.feeds["housing"].items[offset]["favorite"]
+    await app.handle(callback(card, action(card, "Favorite")))
+    card = app.bot.session.messages[card.message_id]
+    direction = "➡️" if offset < 2 else "⬅️"
+    await app.handle(callback(card, action(card, direction)))
+    moved = app.bot.session.messages[card.message_id]
+    assert f"Flat {offset + (1 if offset < 2 else -1)}" in moved.caption
+
+
+async def test_unfavorite_last_remaining_card_is_undoable(app):
+    app.feeds["housing"].items[0]["favorite"] = True
+    card = await app.review.browse("housing", "favorites")
+    await app.handle(callback(card, action(card, "Favorite")))
+    card = app.bot.session.messages[card.message_id]
+    assert "Flat 0" in card.caption and action(card, "☆ Favorite")
+    assert not any(b.text in ("⬅️", "➡️") for row in card.reply_markup.inline_keyboard for b in row)
+    await app.handle(callback(card, action(card, "Back")))
+    section = list(app.bot.session.messages.values())[-1]
+    await app.handle(callback(section, action(section, "Favorites")))
+    assert "No favorites" in list(app.bot.session.messages.values())[-1].text
 
 
 @pytest.mark.parametrize("owner,chat", [(99, None), (42, -42), (99, -42)])
@@ -213,53 +245,62 @@ async def test_summary_only_delivery_skips_individual_listing_events(app):
     assert app.store.get("feed_cursor:housing") == "2"
 
 
-async def test_digest_opens_in_place_and_all_screens_keep_one_message(app):
+async def test_digest_opens_in_place_and_photo_to_menu_has_no_placeholder(app):
     from aiogram.methods import DeleteMessage
 
     sent = await app.review.summary("housing", "Housing alert\n2 new")
-    original_id = sent.message_id
     await app.handle(callback(sent, action(sent, "View queue")))
-    card = app.bot.session.messages[original_id]
-    assert card.caption and card.reply_markup
-    await app.handle(callback(card, action(card, "→")))
-    card = app.bot.session.messages[original_id]
+    card = app.bot.session.messages[sent.message_id]
+    assert card.photo and card.reply_markup
+    await app.handle(callback(card, action(card, "➡️")))
+    card = app.bot.session.messages[sent.message_id]
     assert "Flat 1" in card.caption
-    await app.handle(callback(card, action(card, "Favorites")))
-    empty = app.bot.session.messages[original_id]
-    assert "No favorites" in empty.caption
-    await app.handle(callback(empty, action(empty, "Back")))
-    card = app.bot.session.messages[original_id]
     await app.handle(callback(card, action(card, "Deck")))
-    deck = app.bot.session.messages[original_id]
-    assert "Home deck" in deck.caption
-    await app.handle(callback(deck, action(deck, "Housing")))
-    assert app.bot.session.messages[original_id].reply_markup
+    deck = list(app.bot.session.messages.values())[-1]
+    assert "Home deck" in deck.text and not deck.photo
     assert len(app.bot.session.messages) == 1
-    assert len([m for m in app.bot.session.calls if isinstance(m, (SendMessage, SendPhoto))]) == 1
-    assert not any(isinstance(m, DeleteMessage) for m in app.bot.session.calls)
+    assert any(isinstance(m, DeleteMessage) for m in app.bot.session.calls)
+    assert not any(
+        isinstance(m, EditMessageMedia) and not isinstance(m.media.media, str) for m in app.bot.session.calls
+    )
 
 
-async def test_no_photo_and_rejected_photo_keep_existing_card_id(app):
+async def test_missing_and_rejected_photos_use_real_text_not_fake_media(app):
     from aiogram.exceptions import TelegramBadRequest
-    from aiogram.methods import DeleteMessage
 
     first = await app.review.browse("housing", "queue")
     app.feeds["housing"].items[1]["presentation"]["photo_url"] = None
     second = await app.review.browse("housing", "queue", 1, message=first)
-    assert second.message_id == first.message_id and "Flat 1" in second.caption
+    assert not second.photo and "Flat 1" in second.text
     original = app.bot.session.make_request
 
     async def reject_url(bot, method, timeout=None):
-        if isinstance(method, EditMessageMedia) and isinstance(method.media.media, str):
-            app.bot.session.calls.append(method)
+        if isinstance(method, EditMessageMedia):
             raise TelegramBadRequest(method=method, message="Wrong HTTP URL")
         return await original(bot, method, timeout)
 
     app.bot.session.make_request = reject_url
     third = await app.review.browse("housing", "queue", 2, message=second)
-    assert third.message_id == first.message_id and "Flat 2" in third.caption
-    assert not any(isinstance(m, DeleteMessage) for m in app.bot.session.calls)
-    assert len([m for m in app.bot.session.calls if isinstance(m, (SendMessage, SendPhoto))]) == 1
+    assert third.message_id == second.message_id and "Flat 2" in third.text
+
+
+async def test_queue_poll_waits_for_next_quarter_hour_and_skips_startup_burst(app, monkeypatch):
+    from dataclasses import replace
+
+    import personal_notifier.notifier as module
+
+    source = replace(app.settings.sources[0], poll_seconds=900)
+    monkeypatch.setattr(module.time, "time", lambda: 900 * 5 + 121)
+    waits = []
+
+    async def pause(seconds):
+        waits.append(seconds)
+        app.stop.set()
+
+    app.pause = pause
+    await app.feed_loop(source)
+    assert waits == [779]
+    assert not app.feeds["housing"].calls
 
 
 async def test_successful_screen_without_keyboard_is_repaired(app):

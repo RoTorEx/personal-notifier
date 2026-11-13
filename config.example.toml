@@ -10,5 +10,5 @@ core_enabled = true
 [[sources]]
 name = "housing"
 socket = "/run/housing-watch/api.sock"
-poll_seconds = 15
+poll_seconds = 900 # Quarter-hour wall-clock boundaries; source UI remains immediate.
 queue = true # Owner-only review API; Core remains read-only.

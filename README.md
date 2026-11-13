@@ -1,10 +1,9 @@
 # Personal Notifier
 
 Private Telegram notifications and an owner-only Home deck. Vibecoding retains its
-push notices; its menu entry currently shows Under construction. Housing opens the
-newest-first queue with Viewed/Favorite, source links, public phone copying and
-separate carousel versus Back/Deck navigation. Buttons update the existing screen,
-including View queue; captions are compact and omit empty fields. All interface
+push notices; its menu entry currently shows Under construction. Housing opens a section menu with separate Queue and Favorites carousels with Viewed/Favorite, source links, public phone copying and
+separate carousel versus Back/Deck navigation. Carousel buttons update the existing screen; returning from a photo to a text menu
+replaces that screen without placeholder images. captions are compact and omit empty fields. All interface
 text is English.
 
 ```sh
@@ -19,8 +18,8 @@ agent. Enable queue=true only for sources implementing the private queue/review 
 Vibecoding Core remains read-only. No producer database is mounted.
 
 Housing alerts contain a new-findings count and View queue, without individual
-apartment pushes. Empty scans stay silent; nonempty queues may remind every 30
-minutes. Known delivery receipts and source cursors survive updates and restarts.
+apartment pushes. Empty scans stay silent; nonempty queues may remind once per hour. Housing feed capture runs on quarter-hour
+boundaries while source scans run every ten minutes. Known delivery receipts and source cursors survive updates and restarts.
 
 See [configuration](config.example.toml), [business rules](BUSINESS.md),
 [operations](docs/OPERATIONS.md) and [Compose](compose.yaml). This repository retains

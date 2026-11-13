@@ -323,12 +323,17 @@ class Notifier:
 
     async def feed_loop(self, source):
         while not self.stop.is_set():
+            if source.queue:
+                await self.pause(source.poll_seconds - time.time() % source.poll_seconds)
+                if self.stop.is_set():
+                    break
             try:
                 await self.collect_feed(source)
                 self.store.set("source_success:" + source.name, str(time.time()))
             except Exception as error:
                 log.warning("Source %s will retry: %s", source.name, type(error).__name__)
-            await self.pause(source.poll_seconds)
+            if not source.queue:
+                await self.pause(source.poll_seconds)
 
     async def notifications(self):
         # Delivery is independent of slow or unavailable source requests.

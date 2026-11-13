@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Add a Housing section menu with separate Queue and Favorites carousels, emoji navigation and a source refresh footer.
+- Keep an unfavorited card visible for undo; combine Viewed/Favorite/source actions and remove collection switching from cards.
+- Retain listing photos while using genuine text menus without placeholder media.
+- Poll housing on quarter-hour boundaries without an offset; producer reminders are hourly.
+
 ## [0.1.33] - 2026-11-13
 
 - Edit the clicked message for View queue, carousel, Home and empty/media transitions;

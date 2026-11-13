@@ -10,12 +10,15 @@ Node Radar retains infrastructure notifications. No source implementation is imp
 
 The English Home deck contains Vibecoding and Housing. Vibecoding shows only an
 Under construction callback alert; its existing independent push notices continue.
-Housing opens the unviewed queue, newest discovery first. Favorites is an operation
-inside Housing. Carousel arrows change the current item within one screen. The
-separate final navigation row contains Back (previous screen) and the compact
-🏠 Deck exit, matching the Telegram Assist navigation convention. Favorites Back
-returns to the housing queue; Housing Back returns to the deck. Empty states keep
-Back/Deck. Operations and source/contact links always precede navigation.
+Housing opens a text section menu with 📋 Queue and ⭐ Favorites. Each collection
+has its own carousel. Viewed removes a card from Queue immediately. Removing a
+favorite inside Favorites keeps that card visible and undoable until explicit
+navigation or leaving the collection, including across a notifier restart.
+The card's first keyboard row combines Viewed, ☆/★ Favorite and the source link.
+An optional phone copy row follows. Emoji carousel arrows occupy the next level;
+Back returns to Housing, while the final 🏠 Deck exit returns to the Home deck.
+No collection switch button or counter button appears inside the carousel.
+Empty states retain Back/Deck. Home entries include emoji.
 
 Only allowed_user_id in its matching private chat can open screens or mutate source
 state. Check both sender ID and chat before any source request or Telegram response;
@@ -37,34 +40,33 @@ Queue-capable sources explicitly opt into queue=true in TOML. FeedClient uses GE
 only absolute viewed/favorite booleans are accepted. No direct producer DB writes.
 A separate source queue capability cannot enable mutations against Vibecoding Core.
 
-Cards use compact source-owned seller/P/U metadata, price, location, property
-facts and optional description/contact. Captions are bounded to 1,024 UTF-16 units.
-Use the standard photo-first media layout with a compact caption and inline keyboard.
-The first row is Viewed/Favorite; source-named links and public phone copying remain
-available. Counter and carousel arrows occupy a navigation row above final Back/Deck.
+Cards use source-owned seller, Published and Updated on separate bold lines,
+price, location/street, property facts, explicit amenities and available description/
+contact. Preserve apartment photos with the standard photo-first layout. A separated
+technical footer shows Queue/Favorites position and Last refresh in Europe/Warsaw.
+Refresh means the oldest latest successful fetch across the producer's searches,
+not publication time or the bot's polling time. Captions fit 1,024 UTF-16 units.
 Only push summaries repeat the Housing alert type, not every browsed card.
 
-Viewed hides a listing without deleting it. Favorite is independent; favorites can
-include viewed items and offer Unview. Review views persist opaque tokens tied to
-the shown source item and Telegram message ID. Repeated stale callbacks cannot
-toggle another item. State writes are absolute/idempotent; restart keeps the view
-and source-owned flags. Buttons, including View queue on a digest or deck, always edit the clicked
-message. Never send/delete a replacement for a button transition. Telegram cannot
-remove a photo in place, so text-only Home/empty/no-photo screens on an existing
-media message use a small neutral strip with the same message ID. Initial command
-entry points may create a first screen. An explicit media rejection preserves the
-message via neutral-media or text editing; ambiguous transport failures retry.
-Every successful screen must retain a nonempty inline keyboard in Telegram's
-returned Message; repair missing markup explicitly and read the result back.
-API markup confirms server state but does not prove a physical client rendered it.
+Viewed hides a listing without deleting it. Favorites can include viewed items and
+offer Unview. Review views persist opaque tokens tied to source item and Telegram
+message ID. Repeated stale callbacks cannot toggle another item. Writes are
+absolute/idempotent; restart keeps source flags and the current undoable card.
+Carousel buttons edit the existing message. Telegram cannot remove photo media
+through an edit: returning to a text menu or empty screen sends the genuine text
+screen and removes the previous photo message. Never fabricate a placeholder image.
+Initial commands may create a screen. Explicit photo rejection falls back to text;
+ambiguous transport failures propagate. Every successful screen retains a nonempty
+keyboard in Telegram's returned Message; repair missing markup and read it back.
+API markup confirms server state but not physical client rendering.
 
 ## Quiet notifications and persistence
 
-Housing Watch scans every 300 seconds and owns digest/reminder timing. Queue-mode
+Housing Watch scans every 600 seconds on ten-minute wall-clock boundaries and owns digest/reminder timing. Queue-mode
 capture advances past legacy individual housing.listing.* events without pushing
 them. Only *.queue.summary and *.queue.reminder enter delivery. New findings produce
 one Housing alert count with View queue. Zero-found scans are silent. A nonempty
-queue may produce Housing reminder after 1,800 seconds since the previous notice;
+queue may produce Housing reminder after 3,600 seconds since the previous notice;
 empty queues never remind. Browsing uses current old-plus-new unviewed entries.
 Pure source updates refresh cards without creating new-identity notifications.
 
@@ -76,7 +78,10 @@ claimed. Producer logs have no consumer acknowledgements or automatic pruning.
 
 Each source, Core collection, owner polling and delivery has an independent async
 loop, bounded HTTP requests and durable offsets. A slow source cannot block others.
-Core polls every three seconds, feeds every fifteen seconds, delivery every second.
+Core polls every three seconds; the housing feed polls every 900 seconds on
+quarter-hour clock boundaries, without a startup burst or offset. Generic feeds keep
+their configured interval. Delivery runs every second, while owner buttons remain
+immediate and independent of scheduled feed capture.
 The shared 1.05-second Telegram write pacer covers sends and edits. Source liveness
 is distinct from process health, which checks this PID/instance and a 120-second
 heartbeat. Runtime remains a separate Compose project under /srv/personal-notifier,

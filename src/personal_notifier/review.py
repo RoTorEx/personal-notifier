@@ -2,14 +2,11 @@
 
 import asyncio
 import json
-import struct
 import uuid
-import zlib
 from urllib.parse import urlsplit
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
-    BufferedInputFile,
     CopyTextButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -20,18 +17,6 @@ from aiogram.types import (
 
 def button(text, data):
     return InlineKeyboardButton(text=text, callback_data=data)
-
-
-def screen_banner():
-    """Small neutral strip replaces a listing photo on text-only screens."""
-
-    def chunk(name, data):
-        return struct.pack("!I", len(data)) + name + data + struct.pack("!I", zlib.crc32(name + data))
-
-    pixels = (b"\0" + bytes((28, 38, 48)) * 640) * 40
-    data = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!2I5B", 640, 40, 8, 2, 0, 0, 0))
-    data += chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
-    return BufferedInputFile(data, filename="screen.png")
 
 
 class ReviewUI:
@@ -51,8 +36,8 @@ class ReviewUI:
         source = next(iter(self.sources))
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [button("Vibecoding", "vibecoding")],
-                [button("Housing", f"browse:{source}:queue")],
+                [button("🛠 Vibecoding", "vibecoding")],
+                [button("🏠 Housing", f"housing:{source}")],
             ]
         )
 
@@ -77,43 +62,60 @@ class ReviewUI:
                 )
         return sent
 
+    async def housing(self, source, message=None):
+        sent = await self.display(
+            "<b>🏠 Housing</b>\n\nChoose a collection.",
+            None,
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        button("📋 Queue", f"browse:{source}:queue"),
+                        button("⭐ Favorites", f"browse:{source}:favorites"),
+                    ],
+                    [button("⬅️ Back", "home"), button("🏠 Deck", "home")],
+                ]
+            ),
+            message,
+        )
+        if message:
+            with self.app.store.db:
+                self.app.store.db.execute(
+                    "DELETE FROM review_views WHERE message_id=?", (message.message_id,)
+                )
+        return sent
+
     async def display(self, html, photo, markup, message=None):
         bot = self.app.bot
         owner = self.app.settings.allowed_user_id
         async with self.app.send_lock:
-
-            async def media(value):
-                if message:
-                    return await bot.edit_message_media(
-                        chat_id=owner,
-                        message_id=message.message_id,
-                        media=InputMediaPhoto(
-                            media=value, caption=html, parse_mode="HTML", show_caption_above_media=False
-                        ),
-                        reply_markup=markup,
-                    )
-                return await bot.send_photo(
-                    owner,
-                    value,
-                    caption=html,
-                    parse_mode="HTML",
-                    show_caption_above_media=False,
-                    reply_markup=markup,
-                )
-
             sent = None
-            if photo or (message and message.photo):
+            if photo:
                 try:
-                    sent = await media(photo or screen_banner())
+                    if message:
+                        sent = await bot.edit_message_media(
+                            chat_id=owner,
+                            message_id=message.message_id,
+                            media=InputMediaPhoto(
+                                media=photo, caption=html, parse_mode="HTML", show_caption_above_media=False
+                            ),
+                            reply_markup=markup,
+                        )
+                    else:
+                        sent = await bot.send_photo(
+                            owner,
+                            photo,
+                            caption=html,
+                            parse_mode="HTML",
+                            show_caption_above_media=False,
+                            reply_markup=markup,
+                        )
                 except TelegramBadRequest as error:
                     if "message is not modified" in str(error).lower():
                         sent = message
-                    elif message and message.photo:
-                        sent = await media(screen_banner())
-                    # An explicitly rejected photo can fall back to the same text
-                    # message, or to the first text send if no message exists yet.
+                    # Explicitly rejected media falls back to a genuine text screen.
+                    # Ambiguous network failures propagate rather than duplicate sends.
             if sent is None:
-                if message:
+                if message and not message.photo:
                     try:
                         sent = await bot.edit_message_text(
                             html,
@@ -129,8 +131,16 @@ class ReviewUI:
                         sent = message
                 else:
                     sent = await bot.send_message(
-                        owner, html, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True
+                        owner,
+                        html,
+                        parse_mode="HTML",
+                        reply_markup=markup,
+                        disable_web_page_preview=True,
                     )
+                    if message:
+                        # Telegram cannot remove photo media through an edit. Replace
+                        # only that transition; never insert a fabricated menu image.
+                        await bot.delete_message(owner, message.message_id)
             if not isinstance(sent, Message):
                 raise ValueError("Missing Telegram screen identity")
             if not sent.reply_markup or not sent.reply_markup.inline_keyboard:
@@ -142,8 +152,8 @@ class ReviewUI:
                 sent = repaired
             return sent
 
-    async def browse(self, source, mode, offset=0, message=None, parent="home"):
-        page = await self.app.feeds[source].queue_request(mode, offset)
+    async def browse(self, source, mode, offset=0, message=None, parent="housing", page=None):
+        page = page if page is not None else await self.app.feeds[source].queue_request(mode, offset)
         item = page["item"]
         token = uuid.uuid4().hex[:16]
         rows = []
@@ -155,43 +165,48 @@ class ReviewUI:
             rows.append(
                 [
                     button("↩ Unview" if item["viewed"] else "✓ Viewed", f"view:{token}:viewed"),
-                    button("★ Saved" if item["favorite"] else "☆ Favorite", f"view:{token}:favorite"),
+                    button("★ Favorite" if item["favorite"] else "☆ Favorite", f"view:{token}:favorite"),
                 ]
             )
             host = urlsplit(item["url"]).hostname or "listing"
             platform = "OLX" if host.endswith("olx.pl") else "Otodom" if host.endswith("otodom.pl") else host
-            links = [InlineKeyboardButton(text=platform, url=item["url"])]
+            rows[0].append(InlineKeyboardButton(text=platform, url=item["url"]))
             if card.get("copy_text"):
-                links.append(
-                    InlineKeyboardButton(
-                        text="📋 Copy phone", copy_text=CopyTextButton(text=card["copy_text"])
-                    )
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            text="📋 Copy phone", copy_text=CopyTextButton(text=card["copy_text"])
+                        )
+                    ]
                 )
-            rows.append(
-                [
-                    button(
-                        "View queue" if mode == "favorites" else "★ Favorites",
-                        f"view:{token}:queue" if mode == "favorites" else f"view:{token}:favorites",
-                    )
-                ]
-            )
-            rows.append(links)
         else:
             html = (
                 "No favorites yet." if mode == "favorites" else "No unviewed listings. You're all caught up."
             )
+        label = "Favorites" if mode == "favorites" else "Queue"
+        position = page["offset"] + 1 if item else 0
+        html += f"\n\n──────────\n{label} · {position} / {page['total']}"
+        if page.get("last_refresh"):
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            try:
+                stamp = datetime.fromisoformat(page["last_refresh"].replace("Z", "+00:00"))
+                if stamp.tzinfo is not None:
+                    local = stamp.astimezone(ZoneInfo("Europe/Warsaw"))
+                    html += "\nLast refresh: " + local.strftime("%d.%m %H:%M %Z")
+            except (ValueError, TypeError, AttributeError):
+                pass
         # Navigation is always the final row, including Home in empty states.
         nav = []
         if item and page["offset"] > 0:
-            nav.append(button("←", f"view:{token}:prev"))
+            nav.append(button("⬅️", f"view:{token}:prev"))
 
-        if item:
-            nav.append(button(f"{page['offset'] + 1}/{page['total']}", f"view:{token}:position"))
         if item and page["offset"] + 1 < page["total"]:
-            nav.append(button("→", f"view:{token}:next"))
+            nav.append(button("➡️", f"view:{token}:next"))
         if nav:
             rows.append(nav)
-        rows.append([button("← Back", f"back:{source}:{parent}"), button("🏠 Deck", "home")])
+        rows.append([button("⬅️ Back", f"back:{source}:housing"), button("🏠 Deck", "home")])
         sent = await self.display(html, photo, InlineKeyboardMarkup(inline_keyboard=rows), message)
         if not hasattr(sent, "message_id"):
             raise ValueError("Missing review message identity")
@@ -231,7 +246,9 @@ class ReviewUI:
                     await self.home()
                 elif command == "/vibecoding":
                     await self.app.send("Under construction")
-                elif command in ("/housing", "/queue", "/favorites"):
+                elif command == "/housing":
+                    await self.housing(source)
+                elif command in ("/queue", "/favorites"):
                     await self.browse(source, "favorites" if command == "/favorites" else "queue")
                 return
             data = callback.data or ""
@@ -242,11 +259,15 @@ class ReviewUI:
                 return
             if data.startswith("back:"):
                 parts = data.split(":")
-                if len(parts) != 3 or parts[1] not in self.sources or parts[2] not in ("home", "queue"):
+                if (
+                    len(parts) != 3
+                    or parts[1] not in self.sources
+                    or parts[2] not in ("home", "queue", "housing")
+                ):
                     return
                 await self.app.bot.answer_callback_query(callback.id)
-                if parts[2] == "queue":
-                    await self.browse(parts[1], "queue", message=message)
+                if parts[2] in ("queue", "housing"):
+                    await self.housing(parts[1], message)
                 else:
                     await self.home(message)
                 return
@@ -257,6 +278,12 @@ class ReviewUI:
                     self.app.store.db.execute(
                         "DELETE FROM review_views WHERE message_id=?", (message.message_id,)
                     )
+                return
+            if data.startswith("housing:"):
+                source = data.split(":", 1)[1]
+                if source in self.sources:
+                    await self.app.bot.answer_callback_query(callback.id)
+                    await self.housing(source, message)
                 return
             if data.startswith("browse:"):
                 parts = data.split(":")
@@ -293,11 +320,31 @@ class ReviewUI:
                     parent="queue" if action == "favorites" else "home",
                 )
                 return
+            item = json.loads(view["item"])
             if action in ("prev", "next"):
-                offset = max(0, offset + (1 if action == "next" else -1))
+                # Removing the displayed favorite shifts its successor into this
+                # offset. The detached card remains undoable until navigation.
+                step = 0 if action == "next" and item.get("_detached") else 1 if action == "next" else -1
+                offset = max(0, offset + step)
             else:
-                item = json.loads(view["item"])
                 await self.app.feeds[view["source"]].queue_request(
                     item=(item["connector"], item["id"]), changes={action: not item[action]}
                 )
+                if view["mode"] == "favorites":
+                    item[action] = not item[action]
+                    item["_detached"] = not item["favorite"]
+                    current = await self.app.feeds[view["source"]].queue_request("favorites", offset)
+                    total = current["total"] + int(item["_detached"])
+                    await self.browse(
+                        view["source"],
+                        "favorites",
+                        message=message,
+                        page={
+                            "item": item,
+                            "total": total,
+                            "offset": min(offset, total - 1),
+                            "last_refresh": current.get("last_refresh"),
+                        },
+                    )
+                    return
             await self.browse(view["source"], view["mode"], offset, message, parent=view["parent"])
