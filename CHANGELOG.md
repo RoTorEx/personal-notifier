@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.33] - 2026-11-13
+
 - Edit the clicked message for View queue, carousel, Home and empty/media transitions;
   preserve one screen ID and use a neutral strip when removing a photo is impossible.
 - Keep compact captions in standard media layout, move position to the carousel
