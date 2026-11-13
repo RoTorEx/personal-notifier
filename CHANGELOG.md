@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.34] - 2026-11-13
+
 - Add a Housing section menu with separate Queue and Favorites carousels, emoji navigation and a source refresh footer.
 - Keep an unfavorited card visible for undo; combine Viewed/Favorite/source actions and remove collection switching from cards.
 - Retain listing photos while using genuine text menus without placeholder media.
