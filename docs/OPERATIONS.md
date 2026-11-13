@@ -29,3 +29,25 @@ ambiguous Telegram acceptance. Verify actual Telegram history before repair.
 make release is interactive; make release-push publishes the reviewed branch/tag.
 Source publication does not itself deploy. Preserve session IDs, source cursors,
 known Telegram message IDs and token files outside Git. No secrets in command text.
+
+## Verified 13 November 2026 cutover
+
+Personal Notifier 0.1.31 runs in its own healthy Docker container. The former
+remote-vibecoding bot container was removed only after health and unchanged Core
+identity were verified. Telegram display name/description were updated and its
+advertised command list is empty. The existing Telegram handle/token/recipient are
+retained; a handle change is a separate BotFather operation, not setMyName.
+
+Housing Watch uses native systemd on the same VPS because that exact source client
+worked natively while the container source preflight returned 403. Both producer
+socket directories remain read-only mounts in the notifier. Source success keys
+and feed_cursor:housing prove independent capture; feed_notices.telegram_id records
+Telegram acceptance. These receipts do not prove the operator has read a message.
+
+After a root-run SQLite backup or verification, ensure every bot.db, bot.db-wal and
+bot.db-shm file has the service UID/GID before starting the unprivileged notifier.
+Checking only the main file left root-owned WAL/SHM files and prevented startup in
+the first cutover attempt. No files were deleted to recover. Old state/image and
+installed-operator backups remain under the prior room and config/migration.
+A rollback after new sends must reconcile the current queue/receipts before any
+old process is reactivated; restoring an older queue blindly can resend messages.
