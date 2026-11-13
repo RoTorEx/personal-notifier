@@ -11,9 +11,10 @@ owns source cursors, the durable delivery queue, pacing and Telegram identity.
 ## Outbound-only boundary
 
 The production entrypoint only pulls source events and sends notifications. It does
-not call getUpdates, accept commands, reply to messages, register callbacks, display
-buttons, run agent input, download incoming files or expose an inbound HTTP server.
-Links are plain text in messages. No startup notice is sent. Startup removes old
+not call getUpdates, accept commands, reply to messages, register callbacks, run agent input, download incoming files or expose an inbound
+HTTP server. Optional cards may show a native clipboard button that Telegram
+handles entirely on the client. No callback or command buttons are accepted.
+Core and legacy source notices retain plain-text links. No startup notice is sent. Startup removes old
 advertised slash commands. The bot token stays solely with this service, pinned to
 the existing verified bot username and numeric private recipient.
 
@@ -76,3 +77,21 @@ config.py: explicit TOML settings. cli.py: outbound-only entrypoint and liveness
 store.py/pacing.py: existing SQLite and Telegram pacing contracts.
 compose.yaml/Dockerfile: independent runtime. docs/OPERATIONS.md: cutover/recovery.
 Historical changelog entries describe the earlier name and deployment.
+
+
+## Readable outbound cards
+
+Optional presentation objects contain html, HTTPS photo_url and copy_text. Keep
+legacy title/text/url support. Validate photo-caption size at 1,024 UTF-16 units
+after markup parsing (Telegram limit), copy text at 1–256 characters and persist
+presentation atomically with queue/cursor. A nullable queue column preserves old
+messages and known receipts without replay. Render one photo plus caption; missing
+or explicitly rejected photos use one formatted text message. Rate limits and
+ambiguous network failures retain the queued card for retry. Use native copy_text
+markup only: no update polling, callbacks or producer-specific imports.
+
+Housing Watch composes separate rent, building-fee, all-in, commission, property,
+location and contact sections, escaping untrusted source fields. A phone is shown
+only if published in public contact text; otherwise follow the source listing.
+Neither a successful Telegram send nor a unit test proves clipboard interaction
+on the owner's physical phone. No synthetic phone numbers enter the live feed.

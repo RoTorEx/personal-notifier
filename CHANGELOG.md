@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Deliver optional photo/HTML cards with native clipboard buttons alongside
+  unchanged legacy and Vibecoding notices; no incoming polling or callbacks.
+- Retain presentation with queue/cursors and fall back to text on explicit photo
+  rejection, preserving existing messages and delivery receipts during migration.
+
 ## [0.1.31] - 2026-11-13
 
 - Rename the application and repository to Personal Notifier, preserving its

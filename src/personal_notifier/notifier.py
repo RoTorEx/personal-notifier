@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 from personal_notifier.client import CoreClient, ReadOnlyCoreClient
 from personal_notifier.config import Settings
@@ -78,6 +80,10 @@ class Notifier:
                 url TEXT NOT NULL,priority INTEGER NOT NULL,created REAL NOT NULL,
                 telegram_id INTEGER,PRIMARY KEY(source,event_id));
         """)
+        columns = {row["name"] for row in self.store.db.execute("PRAGMA table_info(feed_notices)")}
+        if "presentation" not in columns:
+            with self.store.db:
+                self.store.db.execute("ALTER TABLE feed_notices ADD COLUMN presentation TEXT")
         if not self.store.get("notifier_since"):
             self.store.set("notifier_since", str(time.time()))
         self.bot = bot or Bot(settings.read_token())
@@ -104,6 +110,40 @@ class Notifier:
                 parse_mode=None,
                 disable_web_page_preview=True,
                 disable_notification=silent,
+            )
+
+    async def send_card(self, card):
+        markup = None
+        if card.get("copy_text"):
+            markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="📋 Copy phone", copy_text=CopyTextButton(text=card["copy_text"])
+                        )
+                    ]
+                ]
+            )
+        async with self.send_lock:
+            if card.get("photo_url"):
+                try:
+                    return await self.bot.send_photo(
+                        self.settings.allowed_user_id,
+                        card["photo_url"],
+                        caption=card["html"],
+                        parse_mode="HTML",
+                        reply_markup=markup,
+                    )
+                except TelegramBadRequest:
+                    # An explicit rejection is safe to retry as text. Ambiguous transport
+                    # errors retain the original queued card for normal retry.
+                    log.info("Photo rejected; delivering the card as text")
+            return await self.bot.send_message(
+                self.settings.allowed_user_id,
+                card["html"],
+                parse_mode="HTML",
+                reply_markup=markup,
+                disable_web_page_preview=True,
             )
 
     async def snapshot(self):
@@ -208,7 +248,7 @@ class Notifier:
             with self.store.db:
                 for event in page["events"]:
                     self.store.db.execute(
-                        "INSERT OR IGNORE INTO feed_notices(source,event_id,body,url,priority,created) VALUES(?,?,?,?,?,?)",
+                        "INSERT OR IGNORE INTO feed_notices(source,event_id,body,url,priority,created,presentation) VALUES(?,?,?,?,?,?,?)",
                         (
                             source.name,
                             event["id"],
@@ -216,6 +256,7 @@ class Notifier:
                             event["url"],
                             event["priority"],
                             time.time(),
+                            json.dumps(event["presentation"]) if "presentation" in event else None,
                         ),
                     )
                 self.record("feed_cursor:" + source.name, str(page["next_cursor"]))
@@ -226,15 +267,18 @@ class Notifier:
     async def deliver(self):
         # Merge sources into one paced queue; old Core receipts stay authoritative.
         rows = self.store.rows("""
-            SELECT 'vibecoding' AS source,event_id,body,'' AS url,session_id,1 AS priority,created
+            SELECT 'vibecoding' AS source,event_id,body,'' AS url,session_id,1 AS priority,created,NULL AS presentation
             FROM notifier_notices WHERE telegram_id IS NULL
             UNION ALL
-            SELECT source,event_id,body,url,NULL AS session_id,priority,created
+            SELECT source,event_id,body,url,NULL AS session_id,priority,created,presentation
             FROM feed_notices WHERE telegram_id IS NULL
             ORDER BY priority DESC,created,event_id LIMIT 10
         """)
         for row in rows:
-            sent = await self.send(row["body"], row["session_id"], url=row["url"])
+            if row["presentation"]:
+                sent = await self.send_card(json.loads(row["presentation"]))
+            else:
+                sent = await self.send(row["body"], row["session_id"], url=row["url"])
             with self.store.db:
                 if row["source"] == "vibecoding":
                     self.store.db.execute(

@@ -86,7 +86,7 @@ async def test_delivery_continues_when_core_is_unavailable(tmp_path):
     app = Notifier(settings, bot=bot)
     with app.store.db:
         app.store.db.execute(
-            "INSERT INTO feed_notices VALUES(?,?,?,?,?,?,NULL)",
+            "INSERT INTO feed_notices(source,event_id,body,url,priority,created,telegram_id) VALUES(?,?,?,?,?,?,NULL)",
             ("housing", 1, "Candidate", "https://www.olx.pl/d/oferta/test", 2, 1),
         )
 

@@ -1,9 +1,32 @@
 """Read-only, bounded pull contract for independent personal event sources."""
 
 import re
+from html import unescape
 from urllib.parse import urlsplit
 
 from aiohttp import ClientSession, ClientTimeout, UnixConnector
+
+
+def validate_presentation(value):
+    if not isinstance(value, dict) or set(value) - {"html", "photo_url", "copy_text"}:
+        raise ValueError("Invalid presentation")
+    body = value.get("html")
+    if not isinstance(body, str) or not body or len(body) > 6000:
+        raise ValueError("Invalid card text")
+    plain = unescape(re.sub(r"<[^>]*>", "", body))
+    if len(plain.encode("utf-16-le")) // 2 > 1024:
+        raise ValueError("Card exceeds photo caption limit")
+    photo = value.get("photo_url")
+    if photo is not None:
+        if not isinstance(photo, str) or len(photo) > 3000:
+            raise ValueError("Invalid photo URL")
+        parsed = urlsplit(photo)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Invalid photo URL")
+    copy = value.get("copy_text")
+    if copy is not None and (not isinstance(copy, str) or not 1 <= len(copy) <= 256):
+        raise ValueError("Invalid copy text")
+    return value
 
 
 def validate_page(page, cursor):
@@ -17,6 +40,8 @@ def validate_page(page, cursor):
         if type(event.get("id")) is not int or event["id"] <= previous:
             raise ValueError("Event IDs must be strictly increasing")
         previous = event["id"]
+        if "presentation" in event:
+            validate_presentation(event["presentation"])
         if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,79}", event.get("type", "")):
             raise ValueError("Invalid event type")
         for key, limit in (("title", 200), ("text", 3000), ("url", 500)):

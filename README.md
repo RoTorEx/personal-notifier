@@ -1,8 +1,8 @@
 # Personal Notifier
 
 One outbound-only Telegram feed for personal events. It pulls notifications from
-Vibecoding Core and Housing Watch. No buttons, commands, Telegram update polling or
-agent control. Existing Telegram identity and successful delivery receipts survive
+Vibecoding Core and Housing Watch. No commands, Telegram update polling or agent control. Optional photo cards
+can include a native Copy phone button, handled entirely by Telegram. Existing Telegram identity and successful delivery receipts survive
 its rename from Telegram Vibecoding.
 
 ```sh
