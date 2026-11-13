@@ -1,97 +1,86 @@
 # Personal Notifier
 
-## Purpose and ownership
+One private Telegram notification feed for the configured numeric owner. Independent
+sources own their data: Housing Watch owns collection, cards, queue membership and
+viewed/favorite flags; Vibecoding Core owns native sessions and execution. This
+repository owns Telegram identity, event cursors, delivery receipts and review UI.
+Node Radar retains infrastructure notifications. No source implementation is imported.
 
-One private Telegram notification feed for the owner: Vibecoding now, housing now,
-and future independent personal/business sources. Node Radar retains infrastructure
-monitoring. Housing collection and its database belong to Housing Watch. Vibecoding
-Core owns native execution, sessions and its existing event API. This repository
-owns source cursors, the durable delivery queue, pacing and Telegram identity.
+## Home deck and owner boundary
 
-## Outbound-only boundary
+The English Home deck contains Vibecoding and Housing. Vibecoding shows only an
+Under construction callback alert; its existing independent push notices continue.
+Housing opens the unviewed queue, newest discovery first. Favorites is an operation
+inside Housing. Carousel arrows change the current item within one screen. The
+separate final navigation row contains Back (previous screen) and the compact
+🏠 Deck exit, matching the Telegram Assist navigation convention. Favorites Back
+returns to the housing queue; Housing Back returns to the deck. Empty states keep
+Back/Deck. Operations and source/contact links always precede navigation.
 
-The production entrypoint only pulls source events and sends notifications. It does
-not call getUpdates, accept commands, reply to messages, register callbacks, run agent input, download incoming files or expose an inbound
-HTTP server. Optional cards may show a native clipboard button that Telegram
-handles entirely on the client. No callback or command buttons are accepted.
-Core and legacy source notices retain plain-text links. No startup notice is sent. Startup removes old
-advertised slash commands. The bot token stays solely with this service, pinned to
-the existing verified bot username and numeric private recipient.
+Only allowed_user_id in its matching private chat can open screens or mutate source
+state. Check both sender ID and chat before any source request or Telegram response;
+ignore other users, groups and unrelated input. All outgoing messages/edits target
+that same configured ID. Telegram commands are advertised only in that owner's chat.
+The startup identity check remains pinned to the existing bot username/token.
 
-The Core client still rejects every mutation route and every request body before
-transport. Only /health, /sessions, /live and /events?after=<cursor> are allowed.
-No provider token, host home, agent database or Docker socket is mounted. Legacy
-interactive code/state remains for historical recovery tests but is not imported
-by the production entrypoint and cannot be reactivated through Telegram.
+A small independent getUpdates loop handles only deck commands and the registered
+review callbacks. It never dispatches to historical BotRuntime, agent input,
+execution approval, enrollment, uploads or provider settings. CoreClient remains
+strictly read-only: /health, /sessions, /live and /events?after=. Incoming text or
+source data can never become instructions or execution. No Docker socket, producer
+DB, host home or provider token is mounted.
 
-## Sources and persistence
+## Housing queue interaction
 
-Core is the existing built-in source. Its terminal outcomes and questions preserve
-session metadata, duration and input counters without forwarding prompts/answers.
-Session links lead to the private web workspace and require its existing access.
-The original notifier_notices receipts, notifier_cursor and work metadata remain
-in bot.db, so migration neither replays history nor loses known successful sends.
-Initial Core activation establishes a historical baseline rather than notifying
-retained outcomes. Source success timestamps are distinct from process liveness.
+Queue-capable sources explicitly opt into queue=true in TOML. FeedClient uses GET
+/queue and narrowly scoped PATCH /items/{connector}/{id} on that source's Unix socket;
+only absolute viewed/favorite booleans are accepted. No direct producer DB writes.
+A separate source queue capability cannot enable mutations against Vibecoding Core.
 
-Additional [[sources]] use a version-1, read-only Unix HTTP /events endpoint. Each
-source has its own cursor and (source,event_id) queue key. Event validation and
-queue/cursor persistence happen together in one SQLite transaction, without await.
-Vibecoding is a reserved source name. One blocked source cannot block another source
-or pending delivery: each has its own asynchronous loop and bounded requests.
+Cards show type, publication/update dates, seller, price, location, property details,
+short description and main photo. Source-owned HTML escapes untrusted values and
+fits Telegram's 1,024 UTF-16-unit caption budget. Keep the metadata above the photo.
+The first row is Viewed/Favorite. Then Favorites (or View queue), followed by source
+buttons named OLX/Otodom and native Copy phone when publicly available. Carousel
+arrows and Back/Deck remain distinct navigation rows at the bottom.
 
-The event envelope contains version, events and next_cursor; events carry integer
-id, type, title, text, HTTPS url, priority and source-created timestamp when supplied.
-IDs increase within a source. next_cursor equals the last returned event, or the
-requested cursor for an empty page. There are no producer acknowledgements: source
-logs remain available while the notifier owns its durable positions and receipts.
-No automatic event pruning is introduced that could skip an offline consumer.
+Viewed hides a listing without deleting it. Favorite is independent; favorites can
+include viewed items and offer Unview. Review views persist opaque tokens tied to
+the shown source item and Telegram message ID. Repeated stale callbacks cannot
+toggle another item. State writes are absolute/idempotent; restart keeps the view
+and source-owned flags. Explicit photo rejection falls back to formatted text;
+network ambiguity retains normal retry semantics. Telegram cannot remove a photo
+in place, so photo-to-text transitions send a replacement then remove the old card.
 
-Delivery merges up to ten queued messages per pass by priority/time. Priorities are
-0 (ordinary), 1 (time-sensitive work), 2 (urgent candidate). Core keeps priority 1.
-Housing priority 2 is a lead requiring verification, not proof of price or location.
-The existing shared 1.05-second write pacer remains. Telegram success records its
-message ID; known successful sends do not repeat on restart. A lost acceptance
-response or crash before recording may repeat a send: exactly-once is not claimed.
+## Quiet notifications and persistence
 
-## Runtime and decisions
+Housing Watch scans every 300 seconds and owns digest/reminder timing. Queue-mode
+capture advances past legacy individual housing.listing.* events without pushing
+them. Only *.queue.summary and *.queue.reminder enter delivery. New findings produce
+one Housing alert count with View queue. Zero-found scans are silent. A nonempty
+queue may produce Housing reminder after 1,800 seconds since the previous notice;
+empty queues never remind. Browsing uses current old-plus-new unviewed entries.
+Pure source updates refresh cards without creating new-identity notifications.
 
-Own Compose project and /srv/personal-notifier/{runtime,config,data}. SQLite stays
-on durable host disk. Token is a mode-0600 file. No shared producer database.
-Core is polled every three seconds as before; generic sources default to fifteen
-seconds, configurable per source. Delivery checks once per second. These intervals
-are responsiveness defaults, not publication-latency guarantees. The owner requested
-Housing Watch collection every 600 seconds, separately from this feed polling.
-Health checks validate current process instance/PID and delivery-loop heartbeat
-within 120 seconds; source failures remain separate from process readiness.
+Generic non-queue feeds retain their existing text/photo notifications. Vibecoding
+keeps its distinct [Vibecoding] outcome notices. Source captures and cursors commit
+atomically; known successful Telegram message IDs never replay on restart. A lost
+acceptance response or crash before receipt may repeat a send: exactly-once is not
+claimed. Producer logs have no consumer acknowledgements or automatic pruning.
 
-The independent container has a 256 MiB memory ceiling and 0.25 CPU as initial
-bounds for this small single-user process; observe runtime before tuning. Source
-and transport messages are untrusted data and cannot become instructions.
+Each source, Core collection, owner polling and delivery has an independent async
+loop, bounded HTTP requests and durable offsets. A slow source cannot block others.
+Core polls every three seconds, feeds every fifteen seconds, delivery every second.
+The shared 1.05-second Telegram write pacer covers sends and edits. Source liveness
+is distinct from process health, which checks this PID/instance and a 120-second
+heartbeat. Runtime remains a separate Compose project under /srv/personal-notifier,
+with 256 MiB / 0.25 CPU initial bounds and a mode-0600 token file.
 
-## Source map and migration
+## Verification and operations
 
-notifier.py: built-in Core adapter, durable capture and independent loops.
-feeds.py: bounded generic pull protocol validation and client.
-config.py: explicit TOML settings. cli.py: outbound-only entrypoint and liveness.
-store.py/pacing.py: existing SQLite and Telegram pacing contracts.
-compose.yaml/Dockerfile: independent runtime. docs/OPERATIONS.md: cutover/recovery.
-Historical changelog entries describe the earlier name and deployment.
-
-
-## Readable outbound cards
-
-Optional presentation objects contain html, HTTPS photo_url and copy_text. Keep
-legacy title/text/url support. Validate photo-caption size at 1,024 UTF-16 units
-after markup parsing (Telegram limit), copy text at 1–256 characters and persist
-presentation atomically with queue/cursor. A nullable queue column preserves old
-messages and known receipts without replay. Render one photo plus caption; missing
-or explicitly rejected photos use one formatted text message. Rate limits and
-ambiguous network failures retain the queued card for retry. Use native copy_text
-markup only: no update polling, callbacks or producer-specific imports.
-
-Housing Watch composes separate rent, building-fee, all-in, commission, property,
-location and contact sections, escaping untrusted source fields. A phone is shown
-only if published in public contact text; otherwise follow the source listing.
-Neither a successful Telegram send nor a unit test proves clipboard interaction
-on the owner's physical phone. No synthetic phone numbers enter the live feed.
+Run make check, including owner/group rejection, deck versus carousel navigation,
+flags, stale callbacks, summary-only delivery, photo fallback and state migration.
+Verify the actual configured recipient, source socket reads, Telegram acceptance and
+installed revision on the VPS. Do not claim physical clipboard behavior or a user's
+reading from a successful send. See docs/OPERATIONS.md for updates and recovery.
+Preserve source cursors, session identity, queue rows and existing Telegram receipts.

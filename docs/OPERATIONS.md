@@ -27,7 +27,11 @@ one known notifier/state combination; never replay pending queues blindly after
 ambiguous Telegram acceptance. Verify actual Telegram history before repair.
 
 make release is interactive; make release-push publishes the reviewed branch/tag.
-Source publication does not itself deploy. Preserve session IDs, source cursors,
+Source publication does not itself deploy. For 0.1.32 and later, housing opts
+into queue=true in its source block. The bot long-polls only owner deck/review
+interactions; command scope is the pinned private owner's chat. Verify Home deck,
+Vibecoding alert, queue/favorites, Back/Deck, sender/chat rejection and the producer
+review API without enabling any Core mutation path. Preserve session IDs, source cursors,
 known Telegram message IDs and token files outside Git. No secrets in command text.
 
 ## Verified 13 November 2026 cutover

@@ -13,6 +13,7 @@ class FeedSource:
     name: str
     socket: Path
     poll_seconds: float = 15
+    queue: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,10 @@ class Settings:
             interval = float(source.get("poll_seconds", 15))
             if not socket.is_absolute() or interval < 1:
                 raise ValueError("Sources require absolute socket paths and positive polling intervals")
-            sources.append(FeedSource(name, socket, interval))
+            queue = source.get("queue", False)
+            if type(queue) is not bool:
+                raise ValueError("queue must be boolean")
+            sources.append(FeedSource(name, socket, interval, queue))
         values["sources"] = tuple(sources)
         if unknown := set(values) - set(cls.__dataclass_fields__):
             raise ValueError(f"Unknown Telegram configuration keys: {', '.join(sorted(unknown))}")

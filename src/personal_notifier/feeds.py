@@ -1,4 +1,4 @@
-"""Read-only, bounded pull contract for independent personal event sources."""
+"""Bounded event feeds and explicit source-owned review capabilities."""
 
 import re
 from html import unescape
@@ -77,6 +77,60 @@ class FeedClient:
             import json
 
             return json.loads(raw)
+
+    async def queue_request(self, mode="queue", offset=0, item=None, changes=None):
+        if not self.source.queue:
+            raise PermissionError("Queue controls are disabled for this source")
+        if self.http is None:
+            self.http = ClientSession(
+                connector=UnixConnector(path=str(self.source.socket)), timeout=ClientTimeout(total=10)
+            )
+        if item is None:
+            if mode not in ("queue", "favorites") or type(offset) is not int or offset < 0:
+                raise ValueError("Invalid queue request")
+            request = self.http.get("http://source/queue", params={"mode": mode, "offset": offset})
+        else:
+            if (
+                not isinstance(changes, dict)
+                or not changes
+                or set(changes) - {"viewed", "favorite"}
+                or any(type(v) is not bool for v in changes.values())
+            ):
+                raise ValueError("Invalid review state")
+            from urllib.parse import quote
+
+            connector, identifier = item
+            request = self.http.patch(
+                "http://source/items/" + quote(connector, safe="") + "/" + quote(identifier, safe=""),
+                json=changes,
+            )
+        async with request as response:
+            response.raise_for_status()
+            raw = await response.content.read(100_001)
+            if len(raw) > 100_000:
+                raise ValueError("Queue response exceeds limit")
+            import json
+
+            result = json.loads(raw)
+        if item is None:
+            if (
+                type(result.get("total")) is not int
+                or result["total"] < 0
+                or type(result.get("offset")) is not int
+                or result["offset"] < 0
+            ):
+                raise ValueError("Invalid queue page")
+            card = result.get("item")
+            if card is not None:
+                if any(not isinstance(card.get(k), str) for k in ("connector", "id", "url")):
+                    raise ValueError("Invalid queue item")
+                if any(type(card.get(k)) is not bool for k in ("favorite", "viewed")):
+                    raise ValueError("Invalid review flags")
+                parsed = urlsplit(card["url"])
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                    raise ValueError("Invalid listing link")
+                validate_presentation(card["presentation"])
+        return result
 
     async def close(self):
         if self.http:

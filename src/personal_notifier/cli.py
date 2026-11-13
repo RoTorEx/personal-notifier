@@ -40,7 +40,7 @@ def main():
     parser.add_argument("--health", action="store_true")
     args = parser.parse_args()
     if args.capabilities:
-        print("notifications-only")
+        print("notifications-with-owner-review")
         return
     os.umask(0o077)
     settings = Settings.load(args.config)

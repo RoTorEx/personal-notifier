@@ -11,3 +11,4 @@ core_enabled = true
 name = "housing"
 socket = "/run/housing-watch/api.sock"
 poll_seconds = 15
+queue = true # Owner-only review API; Core remains read-only.

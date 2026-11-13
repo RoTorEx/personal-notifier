@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Add an owner-only Home deck with Vibecoding placeholder alert and Housing queue.
+- Browse current cards with Viewed/Favorite, source-named links and phone copying;
+  keep carousel navigation separate from final Back/Deck exits.
+- Pull only housing summaries/reminders for queue-enabled sources, with no
+  individual apartment pushes or zero-found notifications.
+- Keep review state behind the source API; preserve source cursors and receipts.
+
 - Deliver optional photo/HTML cards with native clipboard buttons alongside
   unchanged legacy and Vibecoding notices; no incoming polling or callbacks.
 - Retain presentation with queue/cursors and fall back to text on explicit photo

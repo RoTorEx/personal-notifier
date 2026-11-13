@@ -15,7 +15,13 @@ from urllib.parse import quote
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeChat,
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 
 from personal_notifier.client import CoreClient, ReadOnlyCoreClient
 from personal_notifier.config import Settings
@@ -96,6 +102,9 @@ class Notifier:
         self.health: dict = {}
         self.stop = asyncio.Event()
         self.send_lock = asyncio.Lock()
+        from personal_notifier.review import ReviewUI
+
+        self.review = ReviewUI(self)
         instance_file = Path("/tmp/personal-notifier-instance")
         self.instance = instance_file.read_text().strip() if instance_file.exists() else uuid.uuid4().hex
 
@@ -131,6 +140,7 @@ class Notifier:
                         self.settings.allowed_user_id,
                         card["photo_url"],
                         caption=card["html"],
+                        show_caption_above_media=True,
                         parse_mode="HTML",
                         reply_markup=markup,
                     )
@@ -152,8 +162,7 @@ class Notifier:
         self.live = await self.engine.call("/live")
 
     async def handle(self, update):
-        # Intentionally unused: no getUpdates, commands, callbacks, or intake.
-        return None
+        return await self.review.handle(update)
 
     def record(self, key: str, value: str):
         self.store.db.execute(
@@ -247,6 +256,8 @@ class Notifier:
             page = validate_page(await client.read(cursor), cursor)
             with self.store.db:
                 for event in page["events"]:
+                    if source.queue and not event["type"].endswith((".queue.summary", ".queue.reminder")):
+                        continue
                     self.store.db.execute(
                         "INSERT OR IGNORE INTO feed_notices(source,event_id,body,url,priority,created,presentation) VALUES(?,?,?,?,?,?,?)",
                         (
@@ -274,8 +285,11 @@ class Notifier:
             FROM feed_notices WHERE telegram_id IS NULL
             ORDER BY priority DESC,created,event_id LIMIT 10
         """)
+        queue_sources = {source.name for source in self.settings.sources if source.queue}
         for row in rows:
-            if row["presentation"]:
+            if row["source"] in queue_sources:
+                sent = await self.review.summary(row["source"], row["body"])
+            elif row["presentation"]:
                 sent = await self.send_card(json.loads(row["presentation"]))
             else:
                 sent = await self.send(row["body"], row["session_id"], url=row["url"])
@@ -326,6 +340,22 @@ class Notifier:
             self.store.set("poll_heartbeat", str(time.time()))
             await self.pause(1)
 
+    async def updates_loop(self):
+        while not self.stop.is_set():
+            try:
+                updates = await self.bot.get_updates(
+                    offset=int(self.store.get("review_update_offset", "0")),
+                    timeout=20,
+                    allowed_updates=["callback_query", "message"],
+                    request_timeout=30,
+                )
+                for update in updates:
+                    await self.handle(update)
+                    self.store.set("review_update_offset", str(update.update_id + 1))
+            except Exception as error:
+                log.warning("Owner review will retry: %s", type(error).__name__)
+                await self.pause(2)
+
     async def run(self):
         lock = (self.settings.data_dir / "notifier.lock").open("a")
         try:
@@ -343,8 +373,22 @@ class Notifier:
             identity = await self.bot.get_me()
             if self.settings.bot_username and identity.username != self.settings.bot_username:
                 raise ValueError("Notifier token belongs to an unexpected bot")
-            await self.bot.delete_my_commands()
+            queue_enabled = any(source.queue for source in self.settings.sources)
+            if queue_enabled:
+                await self.bot.delete_my_commands()
+                await self.bot.set_my_commands(
+                    [
+                        BotCommand(command="menu", description="Home deck"),
+                        BotCommand(command="vibecoding", description="Vibecoding"),
+                        BotCommand(command="housing", description="Housing"),
+                    ],
+                    scope=BotCommandScopeChat(chat_id=self.settings.allowed_user_id),
+                )
+            else:
+                await self.bot.delete_my_commands()
             tasks = [asyncio.create_task(self.notifications())]
+            if queue_enabled:
+                tasks.append(asyncio.create_task(self.updates_loop()))
             if self.settings.core_enabled:
                 tasks.append(asyncio.create_task(self.core_loop()))
             tasks.extend(asyncio.create_task(self.feed_loop(source)) for source in self.settings.sources)
