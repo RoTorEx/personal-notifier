@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          path: telegram-vibecoding
+          path: personal-notifier
       - name: Checkout pinned public Core test fixture
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -29,8 +29,8 @@ jobs:
           version: '0.13.4'
           enable-cache: false
       - name: Check without Telegram or native agent credentials
-        working-directory: telegram-vibecoding
-        run: make check
+        working-directory: personal-notifier
+        run: make check CORE_SOURCE=../vibecoding-core
       - name: Build notifier wheel
-        working-directory: telegram-vibecoding
+        working-directory: personal-notifier
         run: uv build --wheel --out-dir "$RUNNER_TEMP/notifier-dist"
