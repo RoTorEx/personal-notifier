@@ -2,15 +2,36 @@
 
 import asyncio
 import json
+import struct
 import uuid
+import zlib
 from urllib.parse import urlsplit
 
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    Message,
+)
 
 
 def button(text, data):
     return InlineKeyboardButton(text=text, callback_data=data)
+
+
+def screen_banner():
+    """Small neutral strip replaces a listing photo on text-only screens."""
+
+    def chunk(name, data):
+        return struct.pack("!I", len(data)) + name + data + struct.pack("!I", zlib.crc32(name + data))
+
+    pixels = (b"\0" + bytes((28, 38, 48)) * 640) * 40
+    data = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!2I5B", 640, 40, 8, 2, 0, 0, 0))
+    data += chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
+    return BufferedInputFile(data, filename="screen.png")
 
 
 class ReviewUI:
@@ -60,48 +81,65 @@ class ReviewUI:
         bot = self.app.bot
         owner = self.app.settings.allowed_user_id
         async with self.app.send_lock:
-            if photo:
-                try:
-                    if message:
-                        return await bot.edit_message_media(
-                            chat_id=owner,
-                            message_id=message.message_id,
-                            media=InputMediaPhoto(
-                                media=photo, caption=html, parse_mode="HTML", show_caption_above_media=True
-                            ),
-                            reply_markup=markup,
-                        )
-                    return await bot.send_photo(
-                        owner,
-                        photo,
-                        caption=html,
-                        parse_mode="HTML",
-                        show_caption_above_media=True,
-                        reply_markup=markup,
-                    )
-                except TelegramBadRequest:
-                    # Explicit rejection did not send the requested media.
-                    pass
-            if message and not message.photo:
-                try:
-                    return await bot.edit_message_text(
-                        html,
+
+            async def media(value):
+                if message:
+                    return await bot.edit_message_media(
                         chat_id=owner,
                         message_id=message.message_id,
-                        parse_mode="HTML",
+                        media=InputMediaPhoto(
+                            media=value, caption=html, parse_mode="HTML", show_caption_above_media=False
+                        ),
                         reply_markup=markup,
-                        disable_web_page_preview=True,
                     )
+                return await bot.send_photo(
+                    owner,
+                    value,
+                    caption=html,
+                    parse_mode="HTML",
+                    show_caption_above_media=False,
+                    reply_markup=markup,
+                )
+
+            sent = None
+            if photo or (message and message.photo):
+                try:
+                    sent = await media(photo or screen_banner())
                 except TelegramBadRequest as error:
                     if "message is not modified" in str(error).lower():
-                        return message
-                    raise
-            sent = await bot.send_message(
-                owner, html, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True
-            )
-            if message:
-                # Telegram cannot remove a photo through editMessageMedia.
-                await bot.delete_message(owner, message.message_id)
+                        sent = message
+                    elif message and message.photo:
+                        sent = await media(screen_banner())
+                    # An explicitly rejected photo can fall back to the same text
+                    # message, or to the first text send if no message exists yet.
+            if sent is None:
+                if message:
+                    try:
+                        sent = await bot.edit_message_text(
+                            html,
+                            chat_id=owner,
+                            message_id=message.message_id,
+                            parse_mode="HTML",
+                            reply_markup=markup,
+                            disable_web_page_preview=True,
+                        )
+                    except TelegramBadRequest as error:
+                        if "message is not modified" not in str(error).lower():
+                            raise
+                        sent = message
+                else:
+                    sent = await bot.send_message(
+                        owner, html, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True
+                    )
+            if not isinstance(sent, Message):
+                raise ValueError("Missing Telegram screen identity")
+            if not sent.reply_markup or not sent.reply_markup.inline_keyboard:
+                repaired = await bot.edit_message_reply_markup(
+                    chat_id=owner, message_id=sent.message_id, reply_markup=markup
+                )
+                if not isinstance(repaired, Message) or not repaired.reply_markup:
+                    raise ValueError("Telegram did not retain the screen keyboard")
+                sent = repaired
             return sent
 
     async def browse(self, source, mode, offset=0, message=None, parent="home"):
@@ -112,7 +150,7 @@ class ReviewUI:
         photo = None
         if item:
             card = item["presentation"]
-            html = card["html"] + f"\n\n{mode.title()} · {page['offset'] + 1} / {page['total']}"
+            html = card["html"]
             photo = card.get("photo_url")
             rows.append(
                 [
@@ -145,10 +183,12 @@ class ReviewUI:
         # Navigation is always the final row, including Home in empty states.
         nav = []
         if item and page["offset"] > 0:
-            nav.append(button("← Previous", f"view:{token}:prev"))
+            nav.append(button("←", f"view:{token}:prev"))
 
+        if item:
+            nav.append(button(f"{page['offset'] + 1}/{page['total']}", f"view:{token}:position"))
         if item and page["offset"] + 1 < page["total"]:
-            nav.append(button("Next →", f"view:{token}:next"))
+            nav.append(button("→", f"view:{token}:next"))
         if nav:
             rows.append(nav)
         rows.append([button("← Back", f"back:{source}:{parent}"), button("🏠 Deck", "home")])
@@ -223,14 +263,13 @@ class ReviewUI:
                 if len(parts) != 3 or parts[1] not in self.sources or parts[2] not in ("queue", "favorites"):
                     return
                 await self.app.bot.answer_callback_query(callback.id)
-                # Keep digest/menu as a reusable entry point; navigation edits one new card.
-                await self.browse(parts[1], parts[2])
+                await self.browse(parts[1], parts[2], message=message)
                 return
             parts = data.split(":")
             if (
                 len(parts) != 3
                 or parts[0] != "view"
-                or parts[2] not in ("prev", "next", "viewed", "favorite", "favorites", "queue")
+                or parts[2] not in ("prev", "next", "viewed", "favorite", "favorites", "queue", "position")
             ):
                 return
             view = self.app.store.one(
@@ -244,6 +283,8 @@ class ReviewUI:
             await self.app.bot.answer_callback_query(callback.id)
             offset = view["offset"]
             action = parts[2]
+            if action == "position":
+                return
             if action in ("favorites", "queue"):
                 await self.browse(
                     view["source"],

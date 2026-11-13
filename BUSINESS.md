@@ -37,20 +37,26 @@ Queue-capable sources explicitly opt into queue=true in TOML. FeedClient uses GE
 only absolute viewed/favorite booleans are accepted. No direct producer DB writes.
 A separate source queue capability cannot enable mutations against Vibecoding Core.
 
-Cards show type, publication/update dates, seller, price, location, property details,
-short description and main photo. Source-owned HTML escapes untrusted values and
-fits Telegram's 1,024 UTF-16-unit caption budget. Keep the metadata above the photo.
-The first row is Viewed/Favorite. Then Favorites (or View queue), followed by source
-buttons named OLX/Otodom and native Copy phone when publicly available. Carousel
-arrows and Back/Deck remain distinct navigation rows at the bottom.
+Cards use compact source-owned seller/P/U metadata, price, location, property
+facts and optional description/contact. Captions are bounded to 1,024 UTF-16 units.
+Use the standard photo-first media layout with a compact caption and inline keyboard.
+The first row is Viewed/Favorite; source-named links and public phone copying remain
+available. Counter and carousel arrows occupy a navigation row above final Back/Deck.
+Only push summaries repeat the Housing alert type, not every browsed card.
 
 Viewed hides a listing without deleting it. Favorite is independent; favorites can
 include viewed items and offer Unview. Review views persist opaque tokens tied to
 the shown source item and Telegram message ID. Repeated stale callbacks cannot
 toggle another item. State writes are absolute/idempotent; restart keeps the view
-and source-owned flags. Explicit photo rejection falls back to formatted text;
-network ambiguity retains normal retry semantics. Telegram cannot remove a photo
-in place, so photo-to-text transitions send a replacement then remove the old card.
+and source-owned flags. Buttons, including View queue on a digest or deck, always edit the clicked
+message. Never send/delete a replacement for a button transition. Telegram cannot
+remove a photo in place, so text-only Home/empty/no-photo screens on an existing
+media message use a small neutral strip with the same message ID. Initial command
+entry points may create a first screen. An explicit media rejection preserves the
+message via neutral-media or text editing; ambiguous transport failures retry.
+Every successful screen must retain a nonempty inline keyboard in Telegram's
+returned Message; repair missing markup explicitly and read the result back.
+API markup confirms server state but does not prove a physical client rendered it.
 
 ## Quiet notifications and persistence
 

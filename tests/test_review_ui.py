@@ -113,16 +113,21 @@ async def test_deck_vibecoding_alert_housing_carousel_and_separate_back(app):
     rows = card.reply_markup.inline_keyboard
     assert [b.text for b in rows[0]] == ["✓ Viewed", "☆ Favorite"]
     assert [b.text for b in rows[-1]] == ["← Back", "🏠 Deck"]
-    assert rows[-2][-1].text == "Next →"
+    assert rows[-2][-1].text == "→"
     assert rows[2][0].url.startswith("https://www.olx.pl/")
     assert rows[2][1].copy_text.text == "+48501234567"
+    assert card.message_id == deck.message_id
     original_id = card.message_id
-    await app.handle(callback(card, action(card, "Next")))
+    await app.handle(callback(card, action(card, "→")))
     changed = app.bot.session.messages[original_id]
     assert "Flat 1" in changed.caption
     assert any(isinstance(m, EditMessageMedia) for m in app.bot.session.calls)
     await app.handle(callback(changed, action(changed, "Back")))
-    assert "Home deck" in list(app.bot.session.messages.values())[-1].text
+    assert "Home deck" in (
+        list(app.bot.session.messages.values())[-1].caption
+        or list(app.bot.session.messages.values())[-1].text
+    )
+    assert list(app.bot.session.messages.values())[-1].message_id == original_id
 
 
 async def test_viewed_favorite_empty_favorites_back_and_stale_controls(app):
@@ -150,7 +155,7 @@ async def test_viewed_favorite_empty_favorites_back_and_stale_controls(app):
         i["viewed"] = True
     await app.review.browse("housing", "queue", message=card)
     empty = list(app.bot.session.messages.values())[-1]
-    assert "caught up" in empty.text
+    assert "caught up" in (empty.caption or empty.text)
     assert [b.text for b in empty.reply_markup.inline_keyboard[-1]] == ["← Back", "🏠 Deck"]
 
 
@@ -206,3 +211,77 @@ async def test_summary_only_delivery_skips_individual_listing_events(app):
     assert len(sent) == 1 and isinstance(sent[0], SendMessage)
     assert sent[0].reply_markup.inline_keyboard[0][0].text == "View queue"
     assert app.store.get("feed_cursor:housing") == "2"
+
+
+async def test_digest_opens_in_place_and_all_screens_keep_one_message(app):
+    from aiogram.methods import DeleteMessage
+
+    sent = await app.review.summary("housing", "Housing alert\n2 new")
+    original_id = sent.message_id
+    await app.handle(callback(sent, action(sent, "View queue")))
+    card = app.bot.session.messages[original_id]
+    assert card.caption and card.reply_markup
+    await app.handle(callback(card, action(card, "→")))
+    card = app.bot.session.messages[original_id]
+    assert "Flat 1" in card.caption
+    await app.handle(callback(card, action(card, "Favorites")))
+    empty = app.bot.session.messages[original_id]
+    assert "No favorites" in empty.caption
+    await app.handle(callback(empty, action(empty, "Back")))
+    card = app.bot.session.messages[original_id]
+    await app.handle(callback(card, action(card, "Deck")))
+    deck = app.bot.session.messages[original_id]
+    assert "Home deck" in deck.caption
+    await app.handle(callback(deck, action(deck, "Housing")))
+    assert app.bot.session.messages[original_id].reply_markup
+    assert len(app.bot.session.messages) == 1
+    assert len([m for m in app.bot.session.calls if isinstance(m, (SendMessage, SendPhoto))]) == 1
+    assert not any(isinstance(m, DeleteMessage) for m in app.bot.session.calls)
+
+
+async def test_no_photo_and_rejected_photo_keep_existing_card_id(app):
+    from aiogram.exceptions import TelegramBadRequest
+    from aiogram.methods import DeleteMessage
+
+    first = await app.review.browse("housing", "queue")
+    app.feeds["housing"].items[1]["presentation"]["photo_url"] = None
+    second = await app.review.browse("housing", "queue", 1, message=first)
+    assert second.message_id == first.message_id and "Flat 1" in second.caption
+    original = app.bot.session.make_request
+
+    async def reject_url(bot, method, timeout=None):
+        if isinstance(method, EditMessageMedia) and isinstance(method.media.media, str):
+            app.bot.session.calls.append(method)
+            raise TelegramBadRequest(method=method, message="Wrong HTTP URL")
+        return await original(bot, method, timeout)
+
+    app.bot.session.make_request = reject_url
+    third = await app.review.browse("housing", "queue", 2, message=second)
+    assert third.message_id == first.message_id and "Flat 2" in third.caption
+    assert not any(isinstance(m, DeleteMessage) for m in app.bot.session.calls)
+    assert len([m for m in app.bot.session.calls if isinstance(m, (SendMessage, SendPhoto))]) == 1
+
+
+async def test_successful_screen_without_keyboard_is_repaired(app):
+    from aiogram.methods import EditMessageReplyMarkup
+
+    original = app.bot.session.make_request
+
+    async def lose_keyboard(bot, method, timeout=None):
+        if isinstance(method, EditMessageReplyMarkup):
+            app.bot.session.calls.append(method)
+            result = app.bot.session.messages[method.message_id].model_copy(
+                update={"reply_markup": method.reply_markup}
+            )
+            app.bot.session.messages[method.message_id] = result
+            return result
+        result = await original(bot, method, timeout)
+        if isinstance(method, SendPhoto):
+            result = result.model_copy(update={"reply_markup": None})
+            app.bot.session.messages[result.message_id] = result
+        return result
+
+    app.bot.session.make_request = lose_keyboard
+    sent = await app.review.browse("housing", "queue")
+    assert sent.reply_markup and sent.reply_markup.inline_keyboard
+    assert any(isinstance(m, EditMessageReplyMarkup) for m in app.bot.session.calls)

@@ -3,7 +3,9 @@
 Private Telegram notifications and an owner-only Home deck. Vibecoding retains its
 push notices; its menu entry currently shows Under construction. Housing opens the
 newest-first queue with Viewed/Favorite, source links, public phone copying and
-separate carousel versus Back/Deck navigation. All interface text is English.
+separate carousel versus Back/Deck navigation. Buttons update the existing screen,
+including View queue; captions are compact and omit empty fields. All interface
+text is English.
 
 ```sh
 make install

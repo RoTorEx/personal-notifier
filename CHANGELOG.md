@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Edit the clicked message for View queue, carousel, Home and empty/media transitions;
+  preserve one screen ID and use a neutral strip when removing a photo is impossible.
+- Keep compact captions in standard media layout, move position to the carousel
+  keyboard and repair/read back missing keyboard markup.
+
 ## [0.1.32] - 2026-11-13
 
 - Add an owner-only Home deck with Vibecoding placeholder alert and Housing queue.
