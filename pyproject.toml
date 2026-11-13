@@ -3,15 +3,15 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "telegram-vibecoding"
+name = "personal-notifier"
 dynamic = ["version"]
-description = "Notification-only Telegram companion for Remote Vibecoding."
+description = "Personal pull-based notification feed for independent event sources."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = ["aiogram>=3.13,<4", "aiogram-dialog>=2.5,<3", "aiohttp>=3.10,<4", "markdown-it-py>=3,<5"]
 
 [project.scripts]
-telegram-vibecoding = "telegram_vibecoding.cli:main"
+personal-notifier = "personal_notifier.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.12,<1", "mypy>=1.15,<2"]
@@ -35,7 +35,7 @@ check_untyped_defs = true
 ignore_missing_imports = true
 
 [tool.hatch.version]
-path = "src/telegram_vibecoding/__init__.py"
+path = "src/personal_notifier/__init__.py"
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/telegram_vibecoding/__init__.py" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/personal_notifier/__init__.py" }]

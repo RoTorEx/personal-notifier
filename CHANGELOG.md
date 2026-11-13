@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Rename the application and repository to Personal Notifier, preserving its
+  Telegram identity, source cursor and successful delivery receipts.
+- Pull housing events independently alongside existing Vibecoding notifications.
+- Make production fully outbound-only: no commands, incoming update polling,
+  buttons, callbacks, enrollment UI or startup notices. Links remain plain text.
+- Separate container/configuration/state ownership from Vibecoding Core.
+
 ## [0.1.30] - 2026-11-08
 
 - Lead notices with the session name and a readable outcome, use the compact path and web status colours, and count "messages in this run".

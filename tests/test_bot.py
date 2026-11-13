@@ -20,8 +20,8 @@ from aiogram.methods import (
 from aiogram.types import Animation, Chat, Document, Message, PhotoSize, User
 from conftest import settle
 
-from telegram_vibecoding.bot import BotRuntime, SQLiteFSM, authorized
-from telegram_vibecoding.presentation import split_text
+from personal_notifier.bot import BotRuntime, SQLiteFSM, authorized
+from personal_notifier.presentation import split_text
 
 
 class TelegramFake(BaseSession):
@@ -238,7 +238,7 @@ async def test_real_dialog_deck_and_navigation_do_not_start_native_work(app):
 async def test_fsm_survives_new_storage_instance(app):
     from aiogram.fsm.storage.base import StorageKey
 
-    from telegram_vibecoding.dialogs import Screens
+    from personal_notifier.dialogs import Screens
 
     runtime, *_ = app
     key = StorageKey(bot_id=123456, chat_id=42, user_id=42)
@@ -422,8 +422,8 @@ async def resume_legacy_location_input(app):
     # Complete already-captured directory input after removing its menu entrypoint.
     from types import SimpleNamespace
 
-    from telegram_vibecoding.bot import foreground
-    from telegram_vibecoding.dialogs import prompt
+    from personal_notifier.bot import foreground
+    from personal_notifier.dialogs import prompt
 
     runtime, *_ = app
     bg = runtime.background.bg(
@@ -637,7 +637,7 @@ async def test_invalid_location_is_an_inline_error_with_back_and_retry(app, tmp_
 
 
 def test_curated_model_selection_and_long_conversation_parts_are_lossless():
-    from telegram_vibecoding.presentation import conversation_parts, curated_models
+    from personal_notifier.presentation import conversation_parts, curated_models
 
     ids = ["gpt-6-sol", "gpt-6-astra", "gpt-5.6-astra", "gpt-6.1-sol", "gpt-5.1-astra", "gpt-6-luna"]
     assert [m["id"] for m in curated_models([{"id": mid} for mid in ids])] == [
@@ -756,9 +756,9 @@ async def test_incompatible_fsm_reset_reuses_the_published_panel(app):
 def test_container_readiness_rejects_previous_boot_even_when_pid_is_reused(tmp_path):
     import os
 
-    from telegram_vibecoding.cli import healthy
-    from telegram_vibecoding.config import Settings
-    from telegram_vibecoding.store import BotStore
+    from personal_notifier.cli import healthy
+    from personal_notifier.config import Settings
+    from personal_notifier.store import BotStore
 
     settings = Settings(
         data_dir=tmp_path / "state", runtime_dir=tmp_path / "run", token_file=tmp_path / "token"
@@ -779,7 +779,7 @@ def test_container_readiness_rejects_previous_boot_even_when_pid_is_reused(tmp_p
 
 
 async def test_terminal_reports_each_running_component_version_independently(app):
-    from telegram_vibecoding import __version__
+    from personal_notifier import __version__
 
     runtime, transport, engine, native = app
     original = runtime.engine.call
@@ -902,7 +902,7 @@ async def test_absolute_directory_input_is_not_mistaken_for_an_unknown_command(a
 
 
 async def test_live_feedback_animates_public_summaries_without_raw_tool_or_partial_output(app, monkeypatch):
-    from telegram_vibecoding import presentation
+    from personal_notifier import presentation
 
     runtime, transport, engine, native = app
     await command(app, "/start")
@@ -1011,7 +1011,7 @@ async def test_retired_views_recover_without_deleting_session_history(app, tmp_p
 
 
 def test_compact_response_age_uses_elapsed_time_and_handles_missing_replies():
-    from telegram_vibecoding.presentation import relative_age
+    from personal_notifier.presentation import relative_age
 
     assert relative_age(None, now=100000) == "—"
     assert relative_age(99999, now=100000) == "1s"
@@ -1052,7 +1052,7 @@ async def test_session_pages_show_eight_entries_and_paired_arrows_with_working_m
 
 
 async def test_voice_download_target_retry_and_transcript_rendering(app, host):
-    from telegram_vibecoding.presentation import conversation_parts
+    from personal_notifier.presentation import conversation_parts
 
     runtime, transport, engine, native = app
     a = engine.store.create_session(str(host[0].data_dir.parent), "Voice", "medium")
@@ -1274,7 +1274,7 @@ async def test_background_completion_does_not_mark_read_and_latest_acknowledges(
     while "Page ▶" in [b.text for row in panel(transport).reply_markup.inline_keyboard for b in row]:
         await click(app, "Page ▶")
     assert runtime.store.viewed(sid) == second
-    from telegram_vibecoding.store import BotStore
+    from personal_notifier.store import BotStore
 
     reopened = BotStore(runtime.settings.data_dir / "bot.db")
     assert reopened.viewed(sid) == second
@@ -1295,7 +1295,7 @@ async def test_restart_notice_publishes_once_per_boot_preserving_selected_view(a
     assert runtime.store.get("selected") == sid
     notice_id = int(runtime.store.get("restart_notice_id"))
     notice = transport.messages[notice_id]
-    assert "Telegram Vibecoding is online" in notice.text
+    assert "Personal Notifier is online" in notice.text
     assert "Core:" in notice.text and "Warsaw" in notice.text
     assert notice.reply_markup is None
     send = next(
@@ -1406,7 +1406,7 @@ async def test_deck_terminal_edit_archive_and_eight_button_rows(app, host):
 async def test_exchange_and_text_pages_are_independent_and_pause_keeps_identity(app):
     import json
 
-    from telegram_vibecoding.markdown import html_length
+    from personal_notifier.markdown import html_length
 
     runtime, transport, engine, native = app
     await command(app, "/start")

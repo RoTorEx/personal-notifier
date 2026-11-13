@@ -11,8 +11,8 @@ from conftest import settle
 from test_bot import app as app
 from test_bot import command, update
 
-from telegram_vibecoding.bot import BotRuntime
-from telegram_vibecoding.confirmation import (
+from personal_notifier.bot import BotRuntime
+from personal_notifier.confirmation import (
     ConfirmationRequired,
     Confirmations,
     GuardedClient,
@@ -21,7 +21,7 @@ from telegram_vibecoding.confirmation import (
     digest,
     validate_init_data,
 )
-from telegram_vibecoding.store import BotStore
+from personal_notifier.store import BotStore
 
 
 def signed_data(token="123456:test", owner=42, timestamp=None, **extra):

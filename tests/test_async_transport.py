@@ -13,8 +13,8 @@ from aiogram.types import Update
 from conftest import settle
 from test_bot import TelegramFake, update
 
-from telegram_vibecoding.bot import BotRuntime
-from telegram_vibecoding.dialogs import Screens
+from personal_notifier.bot import BotRuntime
+from personal_notifier.dialogs import Screens
 
 pytestmark = pytest.mark.async_transport
 
@@ -294,7 +294,7 @@ async def test_superseded_display_does_not_acknowledge_a_result(async_app, tmp_p
 
 
 async def test_device_confirmation_still_precedes_local_stop_cancellation(async_app, tmp_path):
-    from telegram_vibecoding.confirmation import ConfirmationRequired, Confirmations, GuardedClient
+    from personal_notifier.confirmation import ConfirmationRequired, Confirmations, GuardedClient
 
     runtime, transport, engine, native = async_app
     session = engine.store.create_session(str(tmp_path), "A", "medium")

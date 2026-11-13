@@ -14,10 +14,10 @@ from aiogram_dialog.widgets.link_preview import LinkPreview
 from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Const, Format
 
-from telegram_vibecoding import __version__
-from telegram_vibecoding.book import chapter_pages
-from telegram_vibecoding.markdown import html_length, split_html
-from telegram_vibecoding.presentation import (
+from personal_notifier import __version__
+from personal_notifier.book import chapter_pages
+from personal_notifier.markdown import html_length, split_html
+from personal_notifier.presentation import (
     activity_label,
     conversation_parts,
     curated_models,

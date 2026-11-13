@@ -51,7 +51,7 @@ def test_release_updates_cli_wheel_changelog_and_pushes_only_its_tag(release_rep
     initial = run("git", "rev-parse", "HEAD").stdout.strip()
     run("git", "tag", "unrelated-local-tag")
     run(sys.executable, "scripts/release.py", input="999.0.0\n")
-    assert run("uv", "run", "--frozen", "telegram-vibecoding", "--version").stdout.strip() == "999.0.0"
+    assert run("uv", "run", "--frozen", "personal-notifier", "--version").stdout.strip() == "999.0.0"
     assert run("git", "cat-file", "-t", "v999.0.0").stdout.strip() == "tag"
     assert run("git", "rev-parse", "v999.0.0^{commit}").stdout == run("git", "rev-parse", "HEAD").stdout
     assert run("git", "log", "-1", "--format=%s").stdout.strip() == "build: release 999.0.0"

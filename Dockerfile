@@ -21,9 +21,9 @@ RUN groupadd --gid "$APP_GID" developer && useradd --uid "$APP_UID" --gid "$APP_
     --home-dir "$APP_HOME" --create-home developer
 WORKDIR /app
 COPY --from=dependencies /app /app
-COPY scripts/entrypoint.sh /usr/local/bin/telegram-vibecoding-entrypoint
-RUN chmod 755 /usr/local/bin/telegram-vibecoding-entrypoint
-ENV TELEGRAM_VIBECODING_REVISION=$REVISION
+COPY scripts/entrypoint.sh /usr/local/bin/personal-notifier-entrypoint
+RUN chmod 755 /usr/local/bin/personal-notifier-entrypoint
+ENV PERSONAL_NOTIFIER_REVISION=$REVISION
 ENV PATH="/app/.venv/bin:$PATH"
 USER developer
-ENTRYPOINT ["/usr/local/bin/telegram-vibecoding-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/personal-notifier-entrypoint"]

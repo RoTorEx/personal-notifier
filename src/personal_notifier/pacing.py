@@ -12,7 +12,7 @@ from aiogram.exceptions import TelegramRetryAfter
 from aiogram.methods import AnswerCallbackQuery, Response, TelegramMethod
 from aiogram.methods.base import TelegramType
 
-from telegram_vibecoding.store import BotStore
+from personal_notifier.store import BotStore
 
 log = logging.getLogger(__name__)
 

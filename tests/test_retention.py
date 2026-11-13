@@ -6,7 +6,7 @@ import time
 from test_bot import app as app
 from test_bot import command, update
 
-from telegram_vibecoding.store import BotStore
+from personal_notifier.store import BotStore
 
 
 async def test_bot_retention_scrubs_saved_content_keeps_pending_input_and_bounds_media(app, tmp_path):

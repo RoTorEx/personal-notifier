@@ -89,7 +89,7 @@ def prepare() -> None:
         )
         Path("CHANGELOG.md").write_text(changelog)
         subprocess.run(["uv", "lock", "--offline"], check=True)
-        actual = run("uv", "run", "--frozen", "telegram-vibecoding", "--version")
+        actual = run("uv", "run", "--frozen", "personal-notifier", "--version")
         if actual != target:
             raise ValueError("Installed CLI version does not match the release.")
     except BaseException:

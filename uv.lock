@@ -970,7 +970,7 @@ wheels = [
 ]
 
 [[package]]
-name = "telegram-vibecoding"
+name = "personal-notifier"
 source = { editable = "." }
 dependencies = [
     { name = "aiogram" },

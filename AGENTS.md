@@ -37,7 +37,7 @@ This project uses committed local copies of the Vibecoding Kernel.
 ## Project routing
 
 - Work personally, without subagents.
-- This repository owns Telegram Vibecoding; the sibling repository owns the other component.
+- This repository owns Personal Notifier; the sibling repository owns the other component.
 - Read BUSINESS.md and the relevant docs before changing behavior or deployment.
 - Run make check. Production code must not import the sibling implementation.
 - Preserve native session identity, durable queues, full alex host access and

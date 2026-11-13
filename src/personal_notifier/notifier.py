@@ -10,21 +10,16 @@ import os
 import signal
 import time
 import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 from urllib.parse import quote
-from zoneinfo import ZoneInfo
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 
-from telegram_vibecoding import __version__
-from telegram_vibecoding.client import CoreClient, ReadOnlyCoreClient
-from telegram_vibecoding.config import Settings
-from telegram_vibecoding.pacing import ChatPacer
-from telegram_vibecoding.store import BotStore
+from personal_notifier.client import CoreClient, ReadOnlyCoreClient
+from personal_notifier.config import Settings
+from personal_notifier.feeds import FeedClient, validate_page
+from personal_notifier.pacing import ChatPacer
+from personal_notifier.store import BotStore
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +73,10 @@ class Notifier:
             CREATE TABLE IF NOT EXISTS notifier_notices(
                 event_id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, body TEXT NOT NULL,
                 created REAL NOT NULL, telegram_id INTEGER);
+            CREATE TABLE IF NOT EXISTS feed_notices(
+                source TEXT NOT NULL,event_id INTEGER NOT NULL,body TEXT NOT NULL,
+                url TEXT NOT NULL,priority INTEGER NOT NULL,created REAL NOT NULL,
+                telegram_id INTEGER,PRIMARY KEY(source,event_id));
         """)
         if not self.store.get("notifier_since"):
             self.store.set("notifier_since", str(time.time()))
@@ -85,29 +84,24 @@ class Notifier:
         if bot is None:
             self.bot.session.middleware.register(ChatPacer(self.store, settings.allowed_user_id))
         self.engine = ReadOnlyCoreClient(engine or CoreClient(settings))
+        self.feeds = {source.name: FeedClient(source) for source in settings.sources}
         self.sessions: list[dict] = []
         self.live: dict = {}
         self.health: dict = {}
         self.stop = asyncio.Event()
         self.send_lock = asyncio.Lock()
-        instance_file = Path("/tmp/telegram-vibecoding-instance")
+        instance_file = Path("/tmp/personal-notifier-instance")
         self.instance = instance_file.read_text().strip() if instance_file.exists() else uuid.uuid4().hex
 
-    def markup(self, sid: str | None = None) -> InlineKeyboardMarkup:
-        url = self.settings.web_url.rstrip("/") + ("/#" + quote(sid, safe="") if sid else "/")
-        return InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Open web chat" if sid else "Open workspace", url=url)]
-            ]
-        )
-
-    async def send(self, text: str, sid: str | None = None, silent: bool = False):
+    async def send(self, text: str, sid: str | None = None, silent: bool = False, url: str = ""):
+        if sid:
+            url = self.settings.web_url.rstrip("/") + "/#" + quote(sid, safe="")
+        body = text[:3400] + ("\n" + url if url else "")
         async with self.send_lock:
             return await self.bot.send_message(
                 self.settings.allowed_user_id,
-                text,
+                body,
                 parse_mode=None,
-                reply_markup=self.markup(sid),
                 disable_web_page_preview=True,
                 disable_notification=silent,
             )
@@ -117,86 +111,9 @@ class Notifier:
         self.sessions = await self.engine.call("/sessions")
         self.live = await self.engine.call("/live")
 
-    def overview(self) -> str:
-        active = [
-            s
-            for s in self.sessions
-            if s.get("turn_id") or s.get("status") in {"working", "connecting", "transcribing"}
-        ]
-        waiting = sum(bool(s.get("pending_questions")) for s in self.sessions)
-        inputs = int(self.store.get("notifier_inputs", "0"))
-        outcomes = int(self.store.get("notifier_outcomes", "0"))
-        text = (
-            f"Remote Vibecoding Notifier · {self.settings.host_id}\n"
-            f"Notification-only · {len(active)} active · {waiting} waiting for input\n"
-            f"Observed since notifier activation: {inputs} inputs · {outcomes} outcomes\n"
-            f"Completed work: {duration(float(self.store.get('notifier_seconds', '0')))}\n"
-            "Requests and all session controls are available only in the private web workspace."
-        )
-        for session in sorted(self.sessions, key=lambda s: s.get("last_interaction", 0), reverse=True)[:8]:
-            sid = session["id"]
-            started = self.live.get(sid, {}).get("started")
-            age = " · " + duration(time.time() - started) if started else ""
-            waiting_for_owner = session.get("pending_questions") or session.get("status") == "waiting"
-            status = session.get("status", "unknown")
-            marker = (
-                "🟡"
-                if waiting_for_owner
-                else "🔵"
-                if session in active
-                else "🔴"
-                if status in {"failed", "interrupted", "uncertain"}
-                else "🟢"
-            )
-            label = "Waiting for you" if waiting_for_owner else STATUSES.get(status, status.capitalize())
-            text += (
-                f"\n\n{marker} {session['name'][:80]} · {label}{age}\n"
-                f"{compact_path(session['cwd'])[:160]}\n"
-                f"{session.get('model') or 'Auto'} · {session.get('effort') or 'default effort'} · "
-                f"{session.get('collaboration_mode') or 'default'}"
-            )
-        return text[:3900]
-
-    async def handle(self, update: Update):
-        message = update.message
-        callback = update.callback_query
-        if callback:
-            origin = callback.message
-            if (
-                callback.from_user.id != self.settings.allowed_user_id
-                or not origin
-                or origin.chat.id != self.settings.allowed_user_id
-                or origin.chat.type != "private"
-            ):
-                return
-            try:
-                await self.bot.answer_callback_query(
-                    callback.id,
-                    text="Telegram is notification-only. Use the private web workspace.",
-                    show_alert=True,
-                )
-            except TelegramBadRequest:
-                pass  # Expired legacy buttons must not block the polling cursor.
-            return
-        if (
-            not message
-            or not message.from_user
-            or message.from_user.id != self.settings.allowed_user_id
-            or message.chat.id != self.settings.allowed_user_id
-            or message.chat.type != "private"
-        ):
-            return
-        command = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].lower() if message.text else ""
-        if command in {"/status", "/stats"}:
-            await self.snapshot()
-            await self.send(self.overview())
-        else:
-            await self.send(
-                "Remote Vibecoding Notifier\n"
-                "This bot only sends notifications and read-only activity statistics (/status, /stats). "
-                "Text, commands, files, voice and old buttons cannot start, steer or control Codex. "
-                "Open the private web workspace to work with agents."
-            )
+    async def handle(self, update):
+        # Intentionally unused: no getUpdates, commands, callbacks, or intake.
+        return None
 
     def record(self, key: str, value: str):
         self.store.db.execute(
@@ -251,7 +168,7 @@ class Notifier:
             cwd = session.get("cwd")
             # The session name leads: it is what the owner scans for in a notification list.
             text = (
-                f"{icon} {session.get('name', sid)[:120]}\n"
+                f"{icon} [Vibecoding] {session.get('name', sid)[:100]}\n"
                 f"{label} · {self.settings.host_id} · {compact_path(cwd) if cwd else 'path unavailable'}\n"
                 f"{session.get('model') or 'Auto'} · {session.get('effort') or 'default effort'} · "
                 f"{session.get('collaboration_mode') or 'default'}\n"
@@ -283,62 +200,87 @@ class Notifier:
             if len(events) < 100:
                 break
 
-    async def deliver(self):
-        for row in self.store.rows(
-            "SELECT * FROM notifier_notices WHERE telegram_id IS NULL ORDER BY event_id LIMIT 10"
-        ):
-            sent = await self.send(row["body"], row["session_id"])
+    async def collect_feed(self, source):
+        cursor = int(self.store.get("feed_cursor:" + source.name, "0"))
+        client = self.feeds[source.name]
+        for _ in range(10):
+            page = validate_page(await client.read(cursor), cursor)
             with self.store.db:
-                self.store.db.execute(
-                    "UPDATE notifier_notices SET telegram_id=? WHERE event_id=?",
-                    (sent.message_id, row["event_id"]),
-                )
+                for event in page["events"]:
+                    self.store.db.execute(
+                        "INSERT OR IGNORE INTO feed_notices(source,event_id,body,url,priority,created) VALUES(?,?,?,?,?,?)",
+                        (
+                            source.name,
+                            event["id"],
+                            event["title"] + "\n" + event["text"],
+                            event["url"],
+                            event["priority"],
+                            time.time(),
+                        ),
+                    )
+                self.record("feed_cursor:" + source.name, str(page["next_cursor"]))
+            cursor = page["next_cursor"]
+            if len(page["events"]) < 100:
+                break
 
-    async def notifications(self):
+    async def deliver(self):
+        # Merge sources into one paced queue; old Core receipts stay authoritative.
+        rows = self.store.rows("""
+            SELECT 'vibecoding' AS source,event_id,body,'' AS url,session_id,1 AS priority,created
+            FROM notifier_notices WHERE telegram_id IS NULL
+            UNION ALL
+            SELECT source,event_id,body,url,NULL AS session_id,priority,created
+            FROM feed_notices WHERE telegram_id IS NULL
+            ORDER BY priority DESC,created,event_id LIMIT 10
+        """)
+        for row in rows:
+            sent = await self.send(row["body"], row["session_id"], url=row["url"])
+            with self.store.db:
+                if row["source"] == "vibecoding":
+                    self.store.db.execute(
+                        "UPDATE notifier_notices SET telegram_id=? WHERE event_id=?",
+                        (sent.message_id, row["event_id"]),
+                    )
+                else:
+                    self.store.db.execute(
+                        "UPDATE feed_notices SET telegram_id=? WHERE source=? AND event_id=?",
+                        (sent.message_id, row["source"], row["event_id"]),
+                    )
+
+    async def pause(self, seconds):
+        try:
+            await asyncio.wait_for(self.stop.wait(), timeout=seconds)
+        except TimeoutError:
+            pass
+
+    async def core_loop(self):
         while not self.stop.is_set():
             try:
                 await self.snapshot()
-                if self.store.get("notifier_boot") != self.instance:
-                    now = datetime.now(ZoneInfo("Europe/Warsaw"))
-                    offset = now.strftime("%z")
-                    stamp = f"{now:%Y-%m-%d %H:%M:%S} Warsaw ({now:%Z}, UTC{offset[:3]}:{offset[3:]})"
-                    await self.send(
-                        f"Remote Vibecoding Notifier {__version__} online\nCore {self.health.get('version', 'unknown')} · {self.settings.host_id}\n{stamp}\nNotification-only; agent access is available in the private web workspace.",
-                        # Restarts are routine; only outcomes and questions should make a sound.
-                        silent=True,
-                    )
-                    self.store.set("notifier_boot", self.instance)
                 await self.collect()
-                await self.deliver()
-                # Keep only seven days of metadata notices; cursor/counters have no message content.
-                with self.store.db:
-                    self.store.db.execute(
-                        "DELETE FROM notifier_notices WHERE created<?",
-                        (time.time() - 604800,),
-                    )
+                self.store.set("source_success:vibecoding", str(time.time()))
             except Exception as error:
-                log.warning("Notifier delivery will retry: %s", type(error).__name__)
-            try:
-                await asyncio.wait_for(self.stop.wait(), timeout=3)
-            except TimeoutError:
-                pass
+                log.warning("Vibecoding collection will retry: %s", type(error).__name__)
+            await self.pause(3)
 
-    async def poll(self):
+    async def feed_loop(self, source):
         while not self.stop.is_set():
             try:
-                updates = await self.bot.get_updates(
-                    offset=int(self.store.get("notifier_offset", "0")),
-                    timeout=25,
-                    request_timeout=35,
-                    allowed_updates=["message", "callback_query"],
-                )
-                for update in updates:
-                    await self.handle(update)
-                    self.store.set("notifier_offset", str(update.update_id + 1))
-                self.store.set("poll_heartbeat", str(time.time()))
+                await self.collect_feed(source)
+                self.store.set("source_success:" + source.name, str(time.time()))
             except Exception as error:
-                log.warning("Notifier polling will retry: %s", type(error).__name__)
-                await asyncio.sleep(3)
+                log.warning("Source %s will retry: %s", source.name, type(error).__name__)
+            await self.pause(source.poll_seconds)
+
+    async def notifications(self):
+        # Delivery is independent of slow or unavailable source requests.
+        while not self.stop.is_set():
+            try:
+                await self.deliver()
+            except Exception as error:
+                log.warning("Delivery will retry: %s", type(error).__name__)
+            self.store.set("poll_heartbeat", str(time.time()))
+            await self.pause(1)
 
     async def run(self):
         lock = (self.settings.data_dir / "notifier.lock").open("a")
@@ -353,30 +295,25 @@ class Notifier:
         loop = asyncio.get_running_loop()
         for signum in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(signum, self.stop.set)
-        tasks: list[asyncio.Task[Any]] = []
         try:
             identity = await self.bot.get_me()
             if self.settings.bot_username and identity.username != self.settings.bot_username:
                 raise ValueError("Notifier token belongs to an unexpected bot")
-            await self.bot.set_my_commands(
-                [
-                    BotCommand(command="status", description="Read-only activity"),
-                    BotCommand(command="stats", description="Observed work statistics"),
-                ]
-            )
-            tasks = [
-                asyncio.create_task(self.poll()),
-                asyncio.create_task(self.notifications()),
-                asyncio.create_task(self.stop.wait()),
-            ]
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                await task
+            await self.bot.delete_my_commands()
+            tasks = [asyncio.create_task(self.notifications())]
+            if self.settings.core_enabled:
+                tasks.append(asyncio.create_task(self.core_loop()))
+            tasks.extend(asyncio.create_task(self.feed_loop(source)) for source in self.settings.sources)
+            try:
+                await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
         finally:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
             await self.engine.close()
+            for client in self.feeds.values():
+                await client.close()
             await self.bot.session.close()
             self.store.close()
             lock.close()

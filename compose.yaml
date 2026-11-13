@@ -1,0 +1,30 @@
+name: personal-notifier
+services:
+  personal-notifier:
+    image: personal-notifier:${VERSION:-0.1.31}
+    container_name: personal-notifier
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.25
+    environment:
+      PERSONAL_NOTIFIER_CONFIG: /config/bot.toml
+    volumes:
+      - /srv/personal-notifier/config:/config:ro
+      - /srv/personal-notifier/data:/data
+      - /srv/remote-vibecoding/data/core/run:/run/vibecoding:ro
+      - /srv/housing-watch/run:/run/housing-watch:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test: [CMD, /app/.venv/bin/personal-notifier, --health]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: journald
+      options: {tag: personal-notifier}

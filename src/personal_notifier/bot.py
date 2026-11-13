@@ -45,16 +45,16 @@ from aiogram_dialog.api.exceptions import UnknownIntent, UnknownState
 from aiogram_dialog.api.protocols import MessageNotModified
 from aiogram_dialog.manager.message_manager import MessageManager
 
-from telegram_vibecoding import BOT_NAME
-from telegram_vibecoding.book import SessionBook
-from telegram_vibecoding.client import CoreClient, SessionActionsClient
-from telegram_vibecoding.config import Settings
-from telegram_vibecoding.confirmation import Confirmations, GuardedClient
-from telegram_vibecoding.confirmation import application as confirmation_application
-from telegram_vibecoding.dialogs import Screens, back, go, make_dialog, open_screen
-from telegram_vibecoding.pacing import ChatPacer
-from telegram_vibecoding.presentation import split_text
-from telegram_vibecoding.store import BotStore
+from personal_notifier import BOT_NAME
+from personal_notifier.book import SessionBook
+from personal_notifier.client import CoreClient, SessionActionsClient
+from personal_notifier.config import Settings
+from personal_notifier.confirmation import Confirmations, GuardedClient
+from personal_notifier.confirmation import application as confirmation_application
+from personal_notifier.dialogs import Screens, back, go, make_dialog, open_screen
+from personal_notifier.pacing import ChatPacer
+from personal_notifier.presentation import split_text
+from personal_notifier.store import BotStore
 
 log = logging.getLogger(__name__)
 
@@ -239,7 +239,7 @@ class BotRuntime:
         self.view_receipt: tuple[str, int] | None = None
         self.receipt_text = ""
         self.restart_pending = False
-        instance_file = Path("/tmp/telegram-vibecoding-instance")
+        instance_file = Path("/tmp/personal-notifier-instance")
         self.instance = instance_file.read_text().strip() if instance_file.exists() else uuid.uuid4().hex
         settings.prepare()
         self.store = BotStore(settings.data_dir / "bot.db")
@@ -517,8 +517,8 @@ class BotRuntime:
     async def startup_panel(self) -> None:
         self.restart_pending = self.store.get("restart_panel") != self.instance
         if self.store.get("restart_sent") != self.instance:
-            from telegram_vibecoding import __version__
-            from telegram_vibecoding.presentation import timestamp
+            from personal_notifier import __version__
+            from personal_notifier.presentation import timestamp
 
             health = await self.engine.call("/health")
             text = (
@@ -586,7 +586,7 @@ class BotRuntime:
             if current != answers and current != candidate:
                 raise ValueError("The question answers changed. Review and answer again.")
         if self.confirmations and not self.confirmations.grant.get():
-            from telegram_vibecoding.confirmation import ConfirmationRequired
+            from personal_notifier.confirmation import ConfirmationRequired
 
             self.confirmations.stage(
                 self.confirmations.source.get() + ":answer:" + qid + ":" + key,

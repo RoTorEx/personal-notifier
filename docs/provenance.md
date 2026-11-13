@@ -7,6 +7,6 @@ the Core repository. This separate repository starts with an operational
 foundation commit and then imports the frontend with the existing meaningful
 interaction, persistence, media, restart and delivery checks.
 
-Production imports now stay within telegram_vibecoding. Core interaction is
+Production imports now stay within personal_notifier. Core interaction is
 through the documented Unix-socket API. Integration tests use the sibling Core
 source checkout, not a production package dependency.

@@ -48,9 +48,9 @@ Remote Vibecoding root. Do not send the enrollment code through Telegram or ask
 the agent to print it in a chat. These use the existing private bot database.
 
 ```sh
-sudo docker compose --env-file .env exec -T bot telegram-vibecoding --auth-enroll
-sudo docker compose --env-file .env exec -T bot telegram-vibecoding --auth-devices
-sudo docker compose --env-file .env exec -T bot telegram-vibecoding --auth-revoke DEVICE_ID
+sudo docker compose --env-file .env exec -T bot personal-notifier --auth-enroll
+sudo docker compose --env-file .env exec -T bot personal-notifier --auth-devices
+sudo docker compose --env-file .env exec -T bot personal-notifier --auth-revoke DEVICE_ID
 ```
 
 Generate a code immediately before enrollment; it lasts ten minutes and issuing

@@ -2,7 +2,7 @@
 
 from aiohttp import ClientSession, ClientTimeout, UnixConnector
 
-from telegram_vibecoding.config import Settings
+from personal_notifier.config import Settings
 
 
 class CoreClient:

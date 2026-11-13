@@ -158,7 +158,7 @@ class BotStore(Database):
     def queue_answer(self, event: dict, session: dict, completion_id: int = 0) -> bool:
         from html import escape
 
-        from telegram_vibecoding.markdown import render_markdown, split_html
+        from personal_notifier.markdown import render_markdown, split_html
 
         visit = self.answer_visit()
         if not self.one("SELECT 1 FROM answer_parts WHERE visit=? LIMIT 1", (visit,)):

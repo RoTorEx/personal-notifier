@@ -30,7 +30,7 @@ async def test_chat_cooldown_is_durable_and_reads_continue_without_api_write_ret
         await runtime.bot.delete_message(42, 1)
     assert len(attempts) == 1
     assert (await runtime.bot.get_me()).username == "GardenSandbox_bot"
-    from telegram_vibecoding.pacing import ChatPacer
+    from personal_notifier.pacing import ChatPacer
 
     assert ChatPacer(runtime.store, 42).remaining > 3500
     await runtime.receive_update(Update.model_validate(update(500, "/menu")))

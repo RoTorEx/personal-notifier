@@ -8,8 +8,8 @@ from test_bot import app as app
 from test_bot import click, command, panel
 from test_markdown import CheckedHTML
 
-from telegram_vibecoding.bot import BotRuntime
-from telegram_vibecoding.markdown import html_length, render_markdown
+from personal_notifier.bot import BotRuntime
+from personal_notifier.markdown import html_length, render_markdown
 
 
 def answer_messages(transport):

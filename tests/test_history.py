@@ -9,8 +9,8 @@ from test_bot import app as app
 from test_bot import click, command, panel, update
 from test_markdown import CheckedHTML
 
-from telegram_vibecoding.book import SessionBook, chapter_pages, iterations
-from telegram_vibecoding.markdown import html_length
+from personal_notifier.book import SessionBook, chapter_pages, iterations
+from personal_notifier.markdown import html_length
 
 
 def role_bodies(pages):
@@ -360,7 +360,7 @@ def test_reasoning_is_quoted_losslessly_across_pages(tmp_path):
         "replies": [event(2, "reasoning_summary", reasoning)],
     }
     pages = chapter_pages(conversation, [], tmp_path)
-    from telegram_vibecoding.markdown import render_markdown
+    from personal_notifier.markdown import render_markdown
 
     assert role_bodies(pages)["🧠 Codex · Reasoning"] == CheckedHTML(render_markdown(reasoning)).text
     for page in pages:

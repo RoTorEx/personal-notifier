@@ -15,7 +15,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from aiohttp import web
 
-from telegram_vibecoding.store import BotStore
+from personal_notifier.store import BotStore
 
 # Ten minutes permits reviewing a recording, without an indefinitely usable approval.
 REQUEST_TTL = 600

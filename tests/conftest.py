@@ -7,8 +7,8 @@ from aiohttp import web
 from vibecoding_core.config import Settings as CoreSettings
 from vibecoding_core.engine import Engine, application
 
-from telegram_vibecoding.client import CoreClient
-from telegram_vibecoding.config import Settings
+from personal_notifier.client import CoreClient
+from personal_notifier.config import Settings
 
 
 class NativeFake:
@@ -114,7 +114,7 @@ def inline_panels_for_functional_tests(request, monkeypatch):
     """
     if request.node.get_closest_marker("async_transport"):
         return
-    from telegram_vibecoding.bot import BotRuntime, PanelMessages
+    from personal_notifier.bot import BotRuntime, PanelMessages
 
     queued_send = BotRuntime.send
 

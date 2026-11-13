@@ -1,7 +1,7 @@
 from html.parser import HTMLParser
 
-from telegram_vibecoding.markdown import html_length, render_markdown, split_html
-from telegram_vibecoding.presentation import conversation_parts
+from personal_notifier.markdown import html_length, render_markdown, split_html
+from personal_notifier.presentation import conversation_parts
 
 
 class CheckedHTML(HTMLParser):
@@ -113,7 +113,7 @@ def test_long_query_and_answer_keep_roles_content_and_balanced_pages():
 
 
 def test_session_statuses_keep_question_queue_read_and_failure_contracts_distinct():
-    from telegram_vibecoding.presentation import session_label
+    from personal_notifier.presentation import session_label
 
     base = {
         "name": "<b>Literal</b>",
@@ -144,7 +144,7 @@ def test_session_statuses_keep_question_queue_read_and_failure_contracts_distinc
 
 
 def test_answer_request_and_progress_views_keep_authors_and_usage_unknowns_distinct():
-    from telegram_vibecoding.presentation import quota_summary
+    from personal_notifier.presentation import quota_summary
 
     conversation = {
         "user": {"payload": {"text": "Original request"}},

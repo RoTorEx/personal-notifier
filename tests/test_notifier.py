@@ -7,8 +7,8 @@ from aiogram.methods import SendMessage
 from aiogram.types import Update
 from test_bot import TelegramFake, update
 
-from telegram_vibecoding.client import ReadOnlyCoreClient
-from telegram_vibecoding.notifier import Notifier
+from personal_notifier.client import ReadOnlyCoreClient
+from personal_notifier.notifier import Notifier
 
 
 class ReadSource:
@@ -114,8 +114,7 @@ async def test_owner_messages_media_and_legacy_buttons_never_dispatch(notifier):
     assert app.store.one("SELECT status FROM inbox WHERE id=777")["status"] == "received"
     for method in transport.calls:
         if isinstance(method, SendMessage):
-            assert method.reply_markup.inline_keyboard[0][0].url.startswith("https://vibecoding.com/")
-            assert method.reply_markup.inline_keyboard[0][0].callback_data is None
+            assert method.reply_markup is None
     assert not list(app.settings.data_dir.glob("uploads/*"))
 
 
@@ -136,7 +135,7 @@ def event(identifier, kind, created, **payload):
 
 
 async def test_atomic_cursor_stats_and_durable_notification_restart(tmp_path):
-    from telegram_vibecoding.config import Settings
+    from personal_notifier.config import Settings
 
     source = ReadSource()
     transport = TelegramFake()
@@ -177,7 +176,8 @@ async def test_atomic_cursor_stats_and_durable_notification_restart(tmp_path):
     assert message.disable_notification is False
     assert "native-model · high · plan" in message.text
     assert "Do not forward" not in message.text
-    assert message.reply_markup.inline_keyboard[0][0].url == "https://vibecoding.com/#" + "a" * 16
+    assert message.reply_markup is None
+    assert message.text.endswith("https://vibecoding.com/#" + "a" * 16)
     app.store.close()
     restored = Notifier(settings, bot=bot, engine=source)
     await restored.collect()
@@ -188,7 +188,7 @@ async def test_atomic_cursor_stats_and_durable_notification_restart(tmp_path):
 
 
 async def test_no_historical_backfill_question_notice_and_missing_duration(tmp_path):
-    from telegram_vibecoding.config import Settings
+    from personal_notifier.config import Settings
 
     source = ReadSource()
     bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi", session=TelegramFake())
@@ -213,7 +213,7 @@ async def test_no_historical_backfill_question_notice_and_missing_duration(tmp_p
 
 
 def test_production_cli_uses_notifier_only(monkeypatch, tmp_path):
-    from telegram_vibecoding import cli, notifier
+    from personal_notifier import cli, notifier
 
     calls = []
 
@@ -222,13 +222,13 @@ def test_production_cli_uses_notifier_only(monkeypatch, tmp_path):
 
     monkeypatch.setattr(notifier, "run", run)
     monkeypatch.setattr(cli.Settings, "load", lambda *args: SimpleNamespace())
-    monkeypatch.setattr("sys.argv", ["telegram-vibecoding"])
+    monkeypatch.setattr("sys.argv", ["personal-notifier"])
     cli.main()
     assert len(calls) == 1
 
 
 async def test_truncated_history_does_not_invent_work_duration(tmp_path):
-    from telegram_vibecoding.config import Settings
+    from personal_notifier.config import Settings
 
     source = ReadSource()
     source.events = [event(50, "user", 101), event(51, "completed", 121, status="completed")]

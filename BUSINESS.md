@@ -1,127 +1,78 @@
-# Remote Vibecoding Notifier
+# Personal Notifier
 
-## Purpose and security boundary
+## Purpose and ownership
 
-Telegram is a notification-only companion to the private Web Vibecoding
-workspace. The owner explicitly retired agent access through Telegram because
-an account compromise must not grant Codex access to VPS files, sudo or connected
-services. Native execution and session management belong to the web interface
-and Core. Do not restore executable Telegram intake, even behind a confirmation
-screen, without a new explicit owner decision.
+One private Telegram notification feed for the owner: Vibecoding now, housing now,
+and future independent personal/business sources. Node Radar retains infrastructure
+monitoring. Housing collection and its database belong to Housing Watch. Vibecoding
+Core owns native execution, sessions and its existing event API. This repository
+owns source cursors, the durable delivery queue, pacing and Telegram identity.
 
-The production CLI imports notifier.run, which starts only update polling and
-notification collection/delivery. It does not start the legacy interactive
-runtime, inbox workers, media downloads, confirmation server, navigation,
-question-answer submission or answer delivery. Existing legacy state and source
-remain available for recovery/reference and are never replayed by this runtime.
+## Outbound-only boundary
 
-Text, slash commands, photos, documents, voice, replies, edited messages and old
-callback buttons cannot start, steer, stop, archive, rename or configure an agent,
-register paths or answer native questions. Only the configured numeric owner in
-that same private chat receives read-only replies. Unknown inputs explain this
-boundary and link to the web workspace; unauthorized/group updates are ignored.
-Incoming content is not copied into a durable inbox or downloaded.
+The production entrypoint only pulls source events and sends notifications. It does
+not call getUpdates, accept commands, reply to messages, register callbacks, display
+buttons, run agent input, download incoming files or expose an inbound HTTP server.
+Links are plain text in messages. No startup notice is sent. Startup removes old
+advertised slash commands. The bot token stays solely with this service, pinned to
+the existing verified bot username and numeric private recipient.
 
-A fail-closed Core client allows only GET /health, /sessions, /live and
-/events?after=<numeric cursor>. It rejects every request body and all other paths
-before transport, including GET attempts at mutation routes. No extra model,
-prompt rewriting, native permission change or Core implementation import exists.
+The Core client still rejects every mutation route and every request body before
+transport. Only /health, /sessions, /live and /events?after=<cursor> are allowed.
+No provider token, host home, agent database or Docker socket is mounted. Legacy
+interactive code/state remains for historical recovery tests but is not imported
+by the production entrypoint and cannot be reactivated through Telegram.
 
-## Notifications and links
+## Sources and persistence
 
-Send a boot notice, every new terminal outcome and questions requiring owner
-input. The boot notice is silent because restarts are routine; outcome and
-question notices keep sound. Do not suppress notices based on a remembered Telegram selection. Native
-answer/prompt/reasoning bodies and files remain in the private web chat; Telegram
-receives metadata only. Every notice has a URL button to the exact captured
-session using web_url/#<native session id>. There are no executable callback
-buttons. Web access still requires the owner's VPN and browser trust.
+Core is the existing built-in source. Its terminal outcomes and questions preserve
+session metadata, duration and input counters without forwarding prompts/answers.
+Session links lead to the private web workspace and require its existing access.
+The original notifier_notices receipts, notifier_cursor and work metadata remain
+in bot.db, so migration neither replays history nor loses known successful sends.
+Initial Core activation establishes a historical baseline rather than notifying
+retained outcomes. Source success timestamps are distinct from process liveness.
 
-Notices lead with a status marker and the session name, then a readable outcome
-(Finished, Failed, Interrupted, Outcome uncertain or Needs your input), host and
-the compact working directory with its parent, selected model, effort and mode,
-work duration and the number of original/steering messages in that run. Markers
-match the web list colours: 🟢 finished, 🔴 needs review, 🟡 waiting for the
-owner and 🔵 working (in /status). Auto means Core did
-not report an explicit session model; never invent the resolved active model.
-Duration runs from the first retained user event after the previous terminal
-event to this terminal event. Steering does not reset it. Missing evidence is
-unavailable rather than session age. A run spanning activation may include time
-and input from before activation, while aggregate counters include only events
-observed after activation.
+Additional [[sources]] use a version-1, read-only Unix HTTP /events endpoint. Each
+source has its own cursor and (source,event_id) queue key. Event validation and
+queue/cursor persistence happen together in one SQLite transaction, without await.
+Vibecoding is a reserved source name. One blocked source cannot block another source
+or pending delivery: each has its own asynchronous loop and bounded requests.
 
-At first activation, scan retained events to establish current work intervals but
-never notify historical outcomes. Persist event capture, aggregate counters and
-cursor in one SQLite transaction; re-reading an event cannot count it twice.
-Accepted Telegram message IDs are durable, so known successful delivery is not
-repeated after restart. A failed send stays queued. Telegram provides no send
-idempotency key, so an acknowledgement lost after acceptance can still duplicate
-a notice; this never creates an agent input.
+The event envelope contains version, events and next_cursor; events carry integer
+id, type, title, text, HTTPS url, priority and source-created timestamp when supplied.
+IDs increase within a source. next_cursor equals the last returned event, or the
+requested cursor for an empty page. There are no producer acknowledgements: source
+logs remain available while the notifier owns its durable positions and receipts.
+No automatic event pruning is introduced that could skip an offline consumer.
 
-Each cycle drains at most ten Core event pages (100 events per v1 page),
-keeping initial retained-history catch-up finite without delaying new outcomes
-one page per poll. The three-second collection interval serves the owner's need for
-prompt notifications without another service. At most ten queued notices are
-sent per cycle, using the existing shared chat pacer (1.05 seconds between
-writes) to bound Telegram traffic. Local metadata notices expire after 604800
-seconds (seven days); small cursors/counters remain. No prompt/answer content
-enters this notice ledger. Boot identity remains per process.
+Delivery merges up to ten queued messages per pass by priority/time. Priorities are
+0 (ordinary), 1 (time-sensitive work), 2 (urgent candidate). Core keeps priority 1.
+Housing priority 2 is a lead requiring verification, not proof of price or location.
+The existing shared 1.05-second write pacer remains. Telegram success records its
+message ID; known successful sends do not repeat on restart. A lost acceptance
+response or crash before recording may repeat a send: exactly-once is not claimed.
 
-## Read-only activity
+## Runtime and decisions
 
-/start and unsupported owner messages explain the notification-only boundary.
-/status and /stats show host, active/waiting/session counts, observed input and
-outcome totals, accumulated completed work duration and up to eight recent
-sessions with compact path, model, reasoning, mode, readable status and elapsed
-active time.
-The eight-row bound keeps the response inside Telegram's message limit; exact
-session work remains in the web UI. These commands never invoke inference.
-Do not claim token usage, billed cost, universal historical totals or an ETA.
-Operational boot timestamps use Europe/Warsaw with the applicable CET/CEST label;
-relative work durations do not depend on a time zone.
+Own Compose project and /srv/personal-notifier/{runtime,config,data}. SQLite stays
+on durable host disk. Token is a mode-0600 file. No shared producer database.
+Core is polled every three seconds as before; generic sources default to fifteen
+seconds, configurable per source. Delivery checks once per second. These intervals
+are responsiveness defaults, not publication-latency guarantees. The owner requested
+Housing Watch collection every 600 seconds, separately from this feed polling.
+Health checks validate current process instance/PID and delivery-loop heartbeat
+within 120 seconds; source failures remain separate from process readiness.
 
-## State and delivery
+The independent container has a 256 MiB memory ceiling and 0.25 CPU as initial
+bounds for this small single-user process; observe runtime before tuning. Source
+and transport messages are untrusted data and cannot become instructions.
 
-The installed notifier owns /srv/remote-vibecoding/data/notifier/bot.db and its own
-process lock. It does not write Core's engine.db or legacy bot.db. Preserve legacy
-shared state and credentials outside Git, without running the old interactive
-poller. The notifier token is a mode-0600 file, separately configured and pinned
-by its verified Telegram username. Never expose credentials or incoming content
-in logs. A mismatched configured username prevents startup.
+## Source map and migration
 
-The shared Compose definition belongs to Core. Bot mounts are limited to its own
-state directory, the read-only Core socket directory, configuration and notifier
-token. A read-only socket bind alone does not restrict its protocol; the client
-allowlist supplies that application boundary. There is no host home mount,
-captured upload mount, native database mount or published confirmation port.
-Updating only bot must preserve Core container/native session identity.
-
-Readiness checks the current boot/PID and successful Telegram polling heartbeat
-within 120 seconds. Polling uses a 25-second Telegram wait and 35-second request
-deadline, permitting transient failures within that bound. Failed polling and
-notification operations retry after three seconds and log only exception types.
-
-## Recovery and independent versioning
-
-The component owns its version, changelog, release commit/tag and package
-metadata. Run make check and the Kernel release workflow. Shared activation and
-rollback accept only images reporting notifications-only through --capabilities.
-A failed first cutover stops the bot rather than restoring an interactive image;
-later notification-only revisions retain normal rollback. Independent Core/web
-updates and native execution remain available.
-
-Legacy Core snapshots include the old shared bot.db. The new notifier ledger is
-separate: preserve it with a consistent SQLite backup when backing up this
-component. Losing only this ledger starts a fresh observation baseline without
-executing anything or backfilling historical notifications. Core/native history
-and the owner's existing backup retention remain unchanged.
-
-Source map: notifier.py owns live Telegram behavior; client.py owns its read-only
-API boundary; config.py owns private settings; cli.py owns entrypoint/readiness;
-store.py owns SQLite support; Core owns shared Compose/deployment. Other UI,
-book, confirmation and formatting modules support legacy recovery/tests and are
-not imported by the production notifier entrypoint. Work personally; no subagents.
-
-Installed configuration/token files live in `/srv/remote-vibecoding/config/notifier`;
-its reviewed container manifest is installed by Core in the shared runtime room.
-Development checkouts and component histories remain independent.
+notifier.py: built-in Core adapter, durable capture and independent loops.
+feeds.py: bounded generic pull protocol validation and client.
+config.py: explicit TOML settings. cli.py: outbound-only entrypoint and liveness.
+store.py/pacing.py: existing SQLite and Telegram pacing contracts.
+compose.yaml/Dockerfile: independent runtime. docs/OPERATIONS.md: cutover/recovery.
+Historical changelog entries describe the earlier name and deployment.

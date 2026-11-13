@@ -4,7 +4,7 @@ import time
 from html import escape
 from pathlib import Path
 
-from telegram_vibecoding.markdown import html_length, render_markdown, split_html
+from personal_notifier.markdown import html_length, render_markdown, split_html
 
 KINDS = {
     "user",

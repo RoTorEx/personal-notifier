@@ -1,3 +1,6 @@
+export UV_PROJECT_ENVIRONMENT ?= $(HOME)/construction_side/personal-notifier/venv
+export UV_CACHE_DIR ?= $(HOME)/construction_side/personal-notifier/uv-cache
+CORE_SOURCE ?= ../../vibecoding/remote-vibecoding/vibecoding-core
 UV ?= uv
 
 .PHONY: install check lint fmt test
@@ -5,12 +8,12 @@ install:
 	$(UV) sync --frozen
 check: lint test
 	$(UV) run --frozen mypy src
-	$(UV) run --frozen telegram-vibecoding --help >/dev/null
+	$(UV) run --frozen personal-notifier --help >/dev/null
 lint:
 	$(UV) run --frozen ruff check src tests scripts
 	$(UV) run --frozen ruff format --check src tests scripts
 test:
-	PYTHONPATH=../vibecoding-core/src $(UV) run --frozen pytest -q
+	PYTHONPATH=$(CORE_SOURCE)/src $(UV) run --frozen pytest -q
 fmt:
 	$(UV) run --frozen ruff check --fix src tests scripts
 	$(UV) run --frozen ruff format src tests scripts

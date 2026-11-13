@@ -9,14 +9,24 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class FeedSource:
+    name: str
+    socket: Path
+    poll_seconds: float = 15
+
+
+@dataclass(frozen=True)
 class Settings:
     data_dir: Path
+    # Source collectors have no Telegram credentials.
     runtime_dir: Path
     token_file: Path
     allowed_user_id: int = 0
     host_id: str = "vps"
     bot_username: str = ""
     web_url: str = "https://vibecoding.com"
+    core_enabled: bool = True
+    sources: tuple[FeedSource, ...] = ()
     confirmation_required: bool = False
     confirmation_url: str = ""
     confirmation_host: str = "127.0.0.1"
@@ -31,15 +41,32 @@ class Settings:
         path = (
             path
             or Path(
-                os.environ.get("TELEGRAM_VIBECODING_CONFIG", "~/.config/remote-vibecoding/bot.toml")
+                os.environ.get("PERSONAL_NOTIFIER_CONFIG", "~/.config/personal-notifier/bot.toml")
             ).expanduser()
         )
         values = tomllib.loads(path.read_text()) if path.exists() else {}
+        sources: list[FeedSource] = []
+        import re
+
+        for source in values.pop("sources", []):
+            name = source["name"]
+            if (
+                not re.fullmatch(r"[a-z][a-z0-9_-]{0,40}", name)
+                or name == "vibecoding"
+                or any(s.name == name for s in sources)
+            ):
+                raise ValueError("Source names must be unique and cannot be vibecoding")
+            socket = Path(source["socket"]).expanduser()
+            interval = float(source.get("poll_seconds", 15))
+            if not socket.is_absolute() or interval < 1:
+                raise ValueError("Sources require absolute socket paths and positive polling intervals")
+            sources.append(FeedSource(name, socket, interval))
+        values["sources"] = tuple(sources)
         if unknown := set(values) - set(cls.__dataclass_fields__):
             raise ValueError(f"Unknown Telegram configuration keys: {', '.join(sorted(unknown))}")
-        data = Path(values.pop("data_dir", "~/.local/state/remote-vibecoding")).expanduser()
+        data = Path(values.pop("data_dir", "~/.local/state/personal-notifier")).expanduser()
         runtime = Path(values.pop("runtime_dir", str(data / "run"))).expanduser()
-        token = Path(values.pop("token_file", "~/.config/remote-vibecoding/bot-token")).expanduser()
+        token = Path(values.pop("token_file", "~/.config/personal-notifier/bot-token")).expanduser()
         return cls(data_dir=data, runtime_dir=runtime, token_file=token, **values)
 
     def validate_web_url(self) -> None:
