@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.32] - 2026-11-13
+
 - Add an owner-only Home deck with Vibecoding placeholder alert and Housing queue.
 - Browse current cards with Viewed/Favorite, source-named links and phone copying;
   keep carousel navigation separate from final Back/Deck exits.
