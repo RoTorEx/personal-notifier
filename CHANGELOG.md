@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.31] - 2026-11-13
+
 - Rename the application and repository to Personal Notifier, preserving its
   Telegram identity, source cursor and successful delivery receipts.
 - Pull housing events independently alongside existing Vibecoding notifications.
