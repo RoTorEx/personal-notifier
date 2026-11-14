@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.37] - 2026-11-14
+
 - Refresh alert/reminder counts from each recipient's current unviewed queue at delivery, including the owner; skip empty personal queues durably.
 - Label the date order Published and sort by platform publication across all sources rather than bot discovery time; retain saved sort preferences.
 
