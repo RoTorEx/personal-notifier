@@ -63,17 +63,27 @@ class ReviewUI:
             ]
         )
 
-    async def summary(self, source, text, recipient=None):
+    async def summary(self, source, text, recipient=None, event_id=None, new_listing=None):
         import re
 
         # Producer event text is a historical scan snapshot, for either recipient.
         # Read the same personal unviewed queue used by the carousel at delivery.
-        if re.search(r"\d+ (?:in queue|waiting in your queue)", text):
+        if new_listing or re.search(r"\d+ (?:in queue|waiting in your queue)", text):
             target = recipient or self.app.settings.allowed_user_id
             kwargs = {"actor": str(target)} if target != self.app.settings.allowed_user_id else {}
+            is_new = new_listing if new_listing is not None else re.search(r"\d+ new ·", text) is not None
+            if is_new:
+                if event_id is None:
+                    return None
+                kwargs["event_id"] = event_id
             page = await self.app.feeds[source].queue_request(**kwargs)
             if not page["total"]:
                 return None
+            if is_new:
+                fresh = page.get("new_total", 0)
+                if not fresh:
+                    return None
+                text = re.sub(r"\d+ new ·", f"{fresh} new ·", text)
             text = re.sub(
                 r"\d+ (in queue|waiting in your queue)", lambda match: f"{page['total']} {match[1]}", text
             )
@@ -310,7 +320,11 @@ class ReviewUI:
                 elif command == "/housing":
                     await self.housing(source)
                 elif command in ("/queue", "/favorites"):
-                    await self.browse(source, "favorites" if command == "/favorites" else "queue")
+                    await self.browse(
+                        source,
+                        "favorites" if command == "/favorites" else "queue",
+                        sort="added" if command == "/queue" else None,
+                    )
                 return
             data = callback.data or ""
             if data == "vibecoding":
@@ -352,7 +366,9 @@ class ReviewUI:
                 if len(parts) != 3 or parts[1] not in self.sources or parts[2] not in ("queue", "favorites"):
                     return
                 await self.app.bot.answer_callback_query(callback.id)
-                await self.browse(parts[1], parts[2], message=message)
+                await self.browse(
+                    parts[1], parts[2], message=message, sort="added" if parts[2] == "queue" else None
+                )
                 return
             parts = data.split(":")
             if (

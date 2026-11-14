@@ -78,7 +78,9 @@ class FeedClient:
 
             return json.loads(raw)
 
-    async def queue_request(self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added"):
+    async def queue_request(
+        self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added", event_id=None
+    ):
         if not self.source.queue:
             raise PermissionError("Queue controls are disabled for this source")
         if self.http is None:
@@ -88,9 +90,12 @@ class FeedClient:
         if item is None:
             if mode not in ("queue", "favorites") or type(offset) is not int or offset < 0:
                 raise ValueError("Invalid queue request")
-            request = self.http.get(
-                "http://source/queue", params={"mode": mode, "offset": offset, "actor": actor, "sort": sort}
-            )
+            params = {"mode": mode, "offset": offset, "actor": actor, "sort": sort}
+            if event_id is not None:
+                if type(event_id) is not int or event_id <= 0:
+                    raise ValueError("Invalid queue notice event")
+                params["event_id"] = event_id
+            request = self.http.get("http://source/queue", params=params)
         else:
             if (
                 not isinstance(changes, dict)
@@ -123,6 +128,12 @@ class FeedClient:
                 or result["offset"] < 0
             ):
                 raise ValueError("Invalid queue page")
+            if event_id is not None and (
+                type(result.get("new_total")) is not int
+                or not 0 <= result["new_total"] <= result["total"]
+                or result.get("event_id") != event_id
+            ):
+                raise ValueError("Source does not confirm notice membership")
             card = result.get("item")
             if card is not None:
                 if any(not isinstance(card.get(k), str) for k in ("connector", "id", "url")):

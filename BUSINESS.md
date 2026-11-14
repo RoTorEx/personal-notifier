@@ -62,7 +62,9 @@ One combined area feed has per-person Viewed/Favorites. Tokens are scoped to
 review_screens migration retains the owner's live tokens and leaves legacy rows.
 ↕️ Sort cycles Published (source publication descending across all platforms), Updated (source refresh descending)
 and Rent (advertised PLN ascending, unknown prices last), persists per collection/
-person, and resets to the first card when changed.
+person, and resets to the first card when changed. Opening Queue from a digest,
+Housing or /queue explicitly starts in Published order, irrespective of a prior
+price sort. Explicit carousel sort changes still persist while navigating.
 Carousel buttons edit the existing message. Telegram cannot remove photo media
 through an edit: returning to a text menu or empty screen sends the genuine text
 screen and removes the previous photo message. Never fabricate a placeholder image.
@@ -79,7 +81,12 @@ them. Only *.queue.summary and *.queue.reminder enter delivery. New findings pro
 one Housing alert count with View queue. Both owners and participants re-read the
 current personal unviewed count immediately before sending every alert/reminder;
 producer event text is a historical snapshot and must never supply that number.
-A personal empty queue skips the event durably in housing_skips, without fake
+For every new-finding alert, pass the source event ID to /queue and replace both
+new and remaining counts from that atomic response. Suppress it when new_total=0,
+even with old unviewed apartments remaining. Never infer freshness from a scan's
+text or total. Retain event_type during capture; legacy alert headings remain
+recognized. A personal empty queue or no live digest members skips the event
+durably in housing_skips, without fake
 Telegram receipts or blocking another recipient. Counts describe the queue at send
 time; an old notification is not a continuously updating counter. Zero-found scans are silent. A nonempty
 queue may produce Housing reminder after 3,600 seconds since the previous notice;

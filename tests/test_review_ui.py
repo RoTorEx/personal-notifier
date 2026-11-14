@@ -31,7 +31,9 @@ class QueueFeed:
             for i in range(3)
         ]
 
-    async def queue_request(self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added"):
+    async def queue_request(
+        self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added", event_id=None
+    ):
         self.calls.append((mode, offset, item, changes))
         if item:
             next(i for i in self.items if (i["connector"], i["id"]) == item).update(changes)
@@ -43,6 +45,7 @@ class QueueFeed:
         )
         offset = min(offset, max(0, len(visible) - 1))
         return {
+            **({"event_id": event_id, "new_total": min(2, len(visible))} if event_id is not None else {}),
             "last_refresh": "2026-11-13T19:30:00Z",
             "total": len(visible),
             "offset": offset,

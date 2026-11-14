@@ -84,3 +84,10 @@ The sender reads the source queue before every count-bearing notification for bo
 the owner and participants. housing_skips records per-recipient empty-queue skips
 without synthetic message IDs; housing_receipts retains real Telegram acceptances.
 The saved wire sort key added now means platform publication and displays Published.
+
+New-alert correctness requires producer queue_event_items and GET /queue?event_id.
+Deploy the supporting producer before enabling this consumer. Membership is stored
+for future digests; old digests without identities are safely suppressed rather
+than assigned invented members. Existing notifications/receipts remain unchanged.
+Capture event_type into feed_notices and validate new_total immediately before
+sending. Queue entry resets to Published; UI sorting remains available afterward.

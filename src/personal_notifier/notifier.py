@@ -91,6 +91,11 @@ class Notifier:
         if "presentation" not in columns:
             with self.store.db:
                 self.store.db.execute("ALTER TABLE feed_notices ADD COLUMN presentation TEXT")
+        if "event_type" not in columns:
+            with self.store.db:
+                self.store.db.execute(
+                    "ALTER TABLE feed_notices ADD COLUMN event_type TEXT NOT NULL DEFAULT ''"
+                )
         if "suppressed" not in columns:
             with self.store.db:
                 self.store.db.execute(
@@ -270,7 +275,7 @@ class Notifier:
                     if source.queue and not event["type"].endswith((".queue.summary", ".queue.reminder")):
                         continue
                     self.store.db.execute(
-                        "INSERT OR IGNORE INTO feed_notices(source,event_id,body,url,priority,created,presentation) VALUES(?,?,?,?,?,?,?)",
+                        "INSERT OR IGNORE INTO feed_notices(source,event_id,body,url,priority,created,presentation,event_type) VALUES(?,?,?,?,?,?,?,?)",
                         (
                             source.name,
                             event["id"],
@@ -279,6 +284,7 @@ class Notifier:
                             event["priority"],
                             time.time(),
                             json.dumps(event["presentation"]) if "presentation" in event else None,
+                            event["type"],
                         ),
                     )
                 self.record("feed_cursor:" + source.name, str(page["next_cursor"]))
@@ -295,10 +301,10 @@ class Notifier:
     async def deliver(self):
         # Merge sources into one paced queue; old Core receipts stay authoritative.
         rows = self.store.rows("""
-            SELECT 'vibecoding' AS source,event_id,body,'' AS url,session_id,1 AS priority,created,NULL AS presentation
+            SELECT 'vibecoding' AS source,event_id,body,'' AS url,session_id,1 AS priority,created,NULL AS presentation,'' AS event_type
             FROM notifier_notices WHERE telegram_id IS NULL
             UNION ALL
-            SELECT source,event_id,body,url,NULL AS session_id,priority,created,presentation
+            SELECT source,event_id,body,url,NULL AS session_id,priority,created,presentation,event_type
             FROM feed_notices WHERE telegram_id IS NULL AND suppressed=0
             ORDER BY priority DESC,created,event_id LIMIT 10
         """)
@@ -339,15 +345,23 @@ class Notifier:
                             owner_message = receipt["telegram_id"]
                         continue
                     try:
-                        sent = await self.review.summary(row["source"], row["body"], recipient)
+                        sent = await self.review.summary(
+                            row["source"], row["body"], recipient, event_id=row["event_id"]
+                        )
                         if sent is None:
                             with self.store.db:
                                 self.store.db.execute(
                                     "INSERT OR IGNORE INTO housing_skips VALUES(?,?,?,?,?)",
-                                    (row["source"], row["event_id"], recipient, "empty_queue", time.time()),
+                                    (
+                                        row["source"],
+                                        row["event_id"],
+                                        recipient,
+                                        "no_live_new_items" if " new ·" in row["body"] else "empty_queue",
+                                        time.time(),
+                                    ),
                                 )
                             log.info(
-                                "housing.empty_queue_skipped recipient=%s event=%s",
+                                "housing.notice_skipped recipient=%s event=%s",
                                 recipient,
                                 row["event_id"],
                             )

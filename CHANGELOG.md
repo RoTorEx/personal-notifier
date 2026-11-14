@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Validate every new alert against its exact source digest and personal queue; suppress obsolete, filtered or already-viewed discoveries even when older apartments remain.
+- Recompute new counts per recipient and retain typed source events; legacy digests without proven members cannot create new-apartment alerts.
+- Open the queue in newest platform-publication order regardless of a previously selected price sort.
+
 ## [0.1.37] - 2026-11-14
 
 - Refresh alert/reminder counts from each recipient's current unviewed queue at delivery, including the owner; skip empty personal queues durably.
