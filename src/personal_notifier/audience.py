@@ -13,6 +13,9 @@ class HousingAudience:
             CREATE TABLE IF NOT EXISTS housing_members(
                 username TEXT PRIMARY KEY,user_id INTEGER UNIQUE NOT NULL,
                 joined_event_id INTEGER NOT NULL,joined_at REAL NOT NULL,active INTEGER NOT NULL DEFAULT 1);
+            CREATE TABLE IF NOT EXISTS housing_skips(
+                source TEXT NOT NULL,event_id INTEGER NOT NULL,recipient INTEGER NOT NULL,
+                reason TEXT NOT NULL,created REAL NOT NULL,PRIMARY KEY(source,event_id,recipient));
             CREATE TABLE IF NOT EXISTS housing_receipts(
                 source TEXT NOT NULL,event_id INTEGER NOT NULL,recipient INTEGER NOT NULL,
                 telegram_id INTEGER NOT NULL,PRIMARY KEY(source,event_id,recipient));

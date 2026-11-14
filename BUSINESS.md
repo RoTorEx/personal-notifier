@@ -60,7 +60,7 @@ absolute/idempotent; restart keeps source flags and the current undoable card.
 One combined area feed has per-person Viewed/Favorites. Tokens are scoped to
 (chat_id, message_id), since private chats can reuse message IDs. The additive
 review_screens migration retains the owner's live tokens and leaves legacy rows.
-↕️ Sort cycles Added (discovery descending), Updated (source refresh descending)
+↕️ Sort cycles Published (source publication descending across all platforms), Updated (source refresh descending)
 and Rent (advertised PLN ascending, unknown prices last), persists per collection/
 person, and resets to the first card when changed.
 Carousel buttons edit the existing message. Telegram cannot remove photo media
@@ -76,7 +76,12 @@ API markup confirms server state but not physical client rendering.
 Housing Watch scans every 600 seconds on ten-minute wall-clock boundaries and owns digest/reminder timing. Queue-mode
 capture advances past legacy individual housing.listing.* events without pushing
 them. Only *.queue.summary and *.queue.reminder enter delivery. New findings produce
-one Housing alert count with View queue. Zero-found scans are silent. A nonempty
+one Housing alert count with View queue. Both owners and participants re-read the
+current personal unviewed count immediately before sending every alert/reminder;
+producer event text is a historical snapshot and must never supply that number.
+A personal empty queue skips the event durably in housing_skips, without fake
+Telegram receipts or blocking another recipient. Counts describe the queue at send
+time; an old notification is not a continuously updating counter. Zero-found scans are silent. A nonempty
 queue may produce Housing reminder after 3,600 seconds since the previous notice;
 empty queues never remind. Send reminders only from 12:00 inclusive until 00:00
 exclusive in Europe/Warsaw, using the event date's CET/CEST offset. New-finding
@@ -94,7 +99,7 @@ acceptance response or crash before receipt may repeat a send: exactly-once is n
 claimed. Producer logs have no consumer acknowledgements or automatic pruning.
 Housing delivery records one receipt per source event/recipient. A partial failure
 retries only missing recipients; enrollment starts at the current event watermark
-rather than replaying historical alerts. Startup and a participant's first /start
+rather than replaying historical alerts. Apartment-only membership is source-owned. Startup and a participant's first /start
 send one durable Quick guide with a View queue button per person. This guide is an
 explicitly requested one-time release notice, not a recurring reminder.
 

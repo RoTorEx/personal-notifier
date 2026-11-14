@@ -328,12 +328,30 @@ class Notifier:
                         "SELECT telegram_id FROM housing_receipts WHERE source=? AND event_id=? AND recipient=?",
                         (row["source"], row["event_id"], recipient),
                     )
+                    skipped = self.store.one(
+                        "SELECT 1 FROM housing_skips WHERE source=? AND event_id=? AND recipient=?",
+                        (row["source"], row["event_id"], recipient),
+                    )
+                    if skipped:
+                        continue
                     if receipt:
                         if recipient == self.settings.allowed_user_id:
                             owner_message = receipt["telegram_id"]
                         continue
                     try:
                         sent = await self.review.summary(row["source"], row["body"], recipient)
+                        if sent is None:
+                            with self.store.db:
+                                self.store.db.execute(
+                                    "INSERT OR IGNORE INTO housing_skips VALUES(?,?,?,?,?)",
+                                    (row["source"], row["event_id"], recipient, "empty_queue", time.time()),
+                                )
+                            log.info(
+                                "housing.empty_queue_skipped recipient=%s event=%s",
+                                recipient,
+                                row["event_id"],
+                            )
+                            continue
                         with self.store.db:
                             self.store.db.execute(
                                 "INSERT OR IGNORE INTO housing_receipts VALUES(?,?,?,?)",
@@ -353,12 +371,19 @@ class Notifier:
                         log.warning(
                             "housing.delivery_failed recipient=%s error=%s", recipient, type(error).__name__
                         )
-                if not pending and owner_message:
+                if not pending:
                     with self.store.db:
-                        self.store.db.execute(
-                            "UPDATE feed_notices SET telegram_id=? WHERE source=? AND event_id=?",
-                            (owner_message, row["source"], row["event_id"]),
-                        )
+                        if owner_message:
+                            self.store.db.execute(
+                                "UPDATE feed_notices SET telegram_id=? WHERE source=? AND event_id=?",
+                                (owner_message, row["source"], row["event_id"]),
+                            )
+                        else:
+                            # Per-recipient receipts/skips remain authoritative; no fake Telegram ID.
+                            self.store.db.execute(
+                                "UPDATE feed_notices SET suppressed=1 WHERE source=? AND event_id=?",
+                                (row["source"], row["event_id"]),
+                            )
                 continue
             elif row["presentation"]:
                 sent = await self.send_card(json.loads(row["presentation"]))
@@ -390,7 +415,7 @@ class Notifier:
             "View queue opens the listings. ⬅️ / ➡️ changes the card.\n"
             "✓ Viewed hides it from your queue. ☆ / ★ Favorite saves or unsaves it.\n"
             "Housing → Favorites opens saved listings. Unfavoriting keeps the current card for undo.\n"
-            "↕️ Sort cycles Added / Updated / Rent ↑. The source button opens the ad.\n"
+            "↕️ Sort cycles Published / Updated / Rent ↑. The source button opens the ad.\n"
             "Back returns one screen; 🏠 Deck opens the main menu.\n\n"
             "Your Viewed and Favorites are personal. Scans: 10 min; notifications: 15 min; queue reminders: hourly, 12:00–00:00 Warsaw."
         )
@@ -416,9 +441,11 @@ class Notifier:
             try:
                 page = await self.feeds[source.name].queue_request(actor=str(recipient))
                 if page["total"]:
-                    await self.review.summary(
+                    sent = await self.review.summary(
                         source.name, f"🏠 Housing reminder\n{page['total']} waiting in your queue", recipient
                     )
+                    if sent is None:
+                        continue
                     self.store.set(key, str(time.time()))
                     log.info("housing.reminder recipient=%s total=%s", recipient, page["total"])
             except Exception as error:

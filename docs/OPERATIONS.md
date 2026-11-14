@@ -78,3 +78,9 @@ reminders, not new findings, guides or direct owner/participant UI actions. The
 producer avoids night reminder events, while the sender suppresses queued stale
 reminders with feed_notices.suppressed=1 and no synthetic telegram_id. The additive
 column defaults to zero for existing rows; retain receipts and guide keys on update.
+
+Queue counts in historical producer events can differ from current Viewed state.
+The sender reads the source queue before every count-bearing notification for both
+the owner and participants. housing_skips records per-recipient empty-queue skips
+without synthetic message IDs; housing_receipts retains real Telegram acceptances.
+The saved wire sort key added now means platform publication and displays Published.

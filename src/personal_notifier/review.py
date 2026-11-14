@@ -64,11 +64,19 @@ class ReviewUI:
         )
 
     async def summary(self, source, text, recipient=None):
-        if recipient and recipient != self.app.settings.allowed_user_id and " in queue" in text:
-            import re
+        import re
 
-            page = await self.app.feeds[source].queue_request(actor=str(recipient))
-            text = re.sub(r"\d+ in queue", f"{page['total']} in queue", text)
+        # Producer event text is a historical scan snapshot, for either recipient.
+        # Read the same personal unviewed queue used by the carousel at delivery.
+        if re.search(r"\d+ (?:in queue|waiting in your queue)", text):
+            target = recipient or self.app.settings.allowed_user_id
+            kwargs = {"actor": str(target)} if target != self.app.settings.allowed_user_id else {}
+            page = await self.app.feeds[source].queue_request(**kwargs)
+            if not page["total"]:
+                return None
+            text = re.sub(
+                r"\d+ (in queue|waiting in your queue)", lambda match: f"{page['total']} {match[1]}", text
+            )
         async with self.app.send_lock:
             return await self.app.bot.send_message(
                 recipient or self.app.settings.allowed_user_id,
@@ -228,7 +236,7 @@ class ReviewUI:
             except (ValueError, TypeError, AttributeError):
                 pass
         if item:
-            label = {"added": "Added ↓", "updated": "Updated ↓", "price": "Rent ↑"}[sort]
+            label = {"added": "Published ↓", "updated": "Updated ↓", "price": "Rent ↑"}[sort]
             rows.append([button("↕️ Sort: " + label, f"view:{token}:sort")])
         # Navigation is always the final row, including Home in empty states.
         nav = []

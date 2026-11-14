@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Refresh alert/reminder counts from each recipient's current unviewed queue at delivery, including the owner; skip empty personal queues durably.
+- Label the date order Published and sort by platform publication across all sources rather than bot discovery time; retain saved sort preferences.
+
 ## [0.1.36] - 2026-11-14
 
 - Send queue reminders only during 12:00–00:00 Europe/Warsaw for every housing recipient; new-finding alerts remain unrestricted.

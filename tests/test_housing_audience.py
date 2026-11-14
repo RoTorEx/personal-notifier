@@ -134,3 +134,48 @@ async def test_guide_is_sent_only_once_and_has_queue_entry(pair):
     sent = list(pair.bot.session.messages.values())[-1]
     assert "Quick guide" in sent.text and "Sort" in sent.text
     assert action(sent, "View queue") == "browse:housing:queue"
+
+
+async def test_owner_and_partner_counts_are_live_at_delivery_for_alerts_and_reminders(pair):
+    await pair.handle(start())
+    original = pair.feeds["housing"].queue_request
+    totals = {"": 10, "99": 6}
+
+    async def page(*args, **kwargs):
+        result = await original(*args, **kwargs)
+        result["total"] = totals[kwargs.get("actor", "")]
+        return result
+
+    pair.feeds["housing"].queue_request = page
+    owner = await pair.review.summary("housing", "🏠 Housing reminder\n41 waiting in your queue", 42)
+    partner = await pair.review.summary("housing", "🏠 Housing alert\n2 new · 41 in queue", 99)
+    assert "10 waiting in your queue" in owner.text
+    assert "2 new · 6 in queue" in partner.text
+    totals[""] = 3
+    owner = await pair.review.summary("housing", "🏠 Housing alert\n2 new · 41 in queue", 42)
+    assert "2 new · 3 in queue" in owner.text
+
+
+async def test_empty_personal_queue_is_skipped_durably_without_blocking_other_person(pair):
+    await pair.handle(start())
+    original = pair.feeds["housing"].queue_request
+
+    async def page(*args, **kwargs):
+        result = await original(*args, **kwargs)
+        result["total"] = 2 if kwargs.get("actor") == "99" else 0
+        return result
+
+    pair.feeds["housing"].queue_request = page
+    with pair.store.db:
+        pair.store.db.execute(
+            "INSERT INTO feed_notices(source,event_id,body,url,priority,created) VALUES('housing',1,'🏠 Housing alert\n2 new · 41 in queue','',2,0)"
+        )
+    before = len(pair.bot.session.calls)
+    await pair.deliver()
+    await pair.deliver()
+    sends = [m for m in pair.bot.session.calls[before:] if isinstance(m, SendMessage)]
+    assert len(sends) == 1 and sends[0].chat_id == 99 and "2 in queue" in sends[0].text
+    assert pair.store.one("SELECT reason FROM housing_skips WHERE recipient=42")["reason"] == "empty_queue"
+    receipt_id = pair.store.one("SELECT telegram_id FROM housing_receipts WHERE recipient=99")["telegram_id"]
+    assert pair.bot.session.messages[receipt_id].chat.id == 99
+    assert pair.store.one("SELECT suppressed FROM feed_notices")["suppressed"] == 1
