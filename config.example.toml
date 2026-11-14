@@ -6,6 +6,7 @@ bot_username = "existing_bot_username"
 web_url = "https://vibecoding.com"
 host_id = "hz-fi-001"
 core_enabled = true
+housing_usernames = [] # Optional housing-only users; first private /start pins their numeric ID.
 
 [[sources]]
 name = "housing"

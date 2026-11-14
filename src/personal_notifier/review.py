@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import logging
 import uuid
+from contextvars import ContextVar
 from urllib.parse import urlsplit
 
 from aiogram.exceptions import TelegramBadRequest
@@ -19,14 +21,34 @@ def button(text, data):
     return InlineKeyboardButton(text=text, callback_data=data)
 
 
+log = logging.getLogger(__name__)
+
+
 class ReviewUI:
     def __init__(self, app):
         self.app = app
         self.lock = asyncio.Lock()
-        self.app.store.db.execute("""CREATE TABLE IF NOT EXISTS review_views(
+        self.recipient = ContextVar("review_recipient", default=app.settings.allowed_user_id)
+        self.app.store.db.execute("""CREATE TABLE IF NOT EXISTS review_screens(
             token TEXT PRIMARY KEY,source TEXT NOT NULL,mode TEXT NOT NULL,
-            offset INTEGER NOT NULL,item TEXT NOT NULL,message_id INTEGER UNIQUE NOT NULL,parent TEXT NOT NULL DEFAULT 'home')""")
+            offset INTEGER NOT NULL,item TEXT NOT NULL,message_id INTEGER NOT NULL,
+            parent TEXT NOT NULL DEFAULT 'housing',chat_id INTEGER NOT NULL,
+            sort TEXT NOT NULL DEFAULT 'added',UNIQUE(chat_id,message_id))""")
+        if "sort" not in {row[1] for row in app.store.db.execute("PRAGMA table_info(review_screens)")}:
+            app.store.db.execute("ALTER TABLE review_screens ADD COLUMN sort TEXT NOT NULL DEFAULT 'added'")
+        if not app.store.get("review_screens_migrated"):
+            if app.store.one("SELECT name FROM sqlite_master WHERE name='review_views'"):
+                self.app.store.db.execute(
+                    "INSERT OR IGNORE INTO review_screens(token,source,mode,offset,item,message_id,parent,chat_id) SELECT token,source,mode,offset,item,message_id,parent,? FROM review_views",
+                    (app.settings.allowed_user_id,),
+                )
+            app.store.set("review_screens_migrated", "1")
         self.app.store.db.commit()
+
+    async def queue_request(self, source, mode="queue", offset=0, **kwargs):
+        if self.recipient.get() != self.app.settings.allowed_user_id:
+            kwargs["actor"] = str(self.recipient.get())
+        return await self.app.feeds[source].queue_request(mode, offset, **kwargs)
 
     @property
     def sources(self):
@@ -41,10 +63,15 @@ class ReviewUI:
             ]
         )
 
-    async def summary(self, source, text):
+    async def summary(self, source, text, recipient=None):
+        if recipient and recipient != self.app.settings.allowed_user_id and " in queue" in text:
+            import re
+
+            page = await self.app.feeds[source].queue_request(actor=str(recipient))
+            text = re.sub(r"\d+ in queue", f"{page['total']} in queue", text)
         async with self.app.send_lock:
             return await self.app.bot.send_message(
-                self.app.settings.allowed_user_id,
+                recipient or self.app.settings.allowed_user_id,
                 text,
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[[button("View queue", f"browse:{source}:queue")]]
@@ -58,7 +85,8 @@ class ReviewUI:
         if message:
             with self.app.store.db:
                 self.app.store.db.execute(
-                    "DELETE FROM review_views WHERE message_id=?", (message.message_id,)
+                    "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                    (message.message_id, self.recipient.get()),
                 )
         return sent
 
@@ -80,13 +108,14 @@ class ReviewUI:
         if message:
             with self.app.store.db:
                 self.app.store.db.execute(
-                    "DELETE FROM review_views WHERE message_id=?", (message.message_id,)
+                    "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                    (message.message_id, self.recipient.get()),
                 )
         return sent
 
     async def display(self, html, photo, markup, message=None):
         bot = self.app.bot
-        owner = self.app.settings.allowed_user_id
+        owner = self.recipient.get()
         async with self.app.send_lock:
             sent = None
             if photo:
@@ -152,8 +181,9 @@ class ReviewUI:
                 sent = repaired
             return sent
 
-    async def browse(self, source, mode, offset=0, message=None, parent="housing", page=None):
-        page = page if page is not None else await self.app.feeds[source].queue_request(mode, offset)
+    async def browse(self, source, mode, offset=0, message=None, parent="housing", page=None, sort=None):
+        sort = sort or self.app.store.get(f"housing_sort:{self.recipient.get()}:{source}:{mode}", "added")
+        page = page if page is not None else await self.queue_request(source, mode, offset, sort=sort)
         item = page["item"]
         token = uuid.uuid4().hex[:16]
         rows = []
@@ -197,6 +227,9 @@ class ReviewUI:
                     html += "\nLast refresh: " + local.strftime("%d.%m %H:%M %Z")
             except (ValueError, TypeError, AttributeError):
                 pass
+        if item:
+            label = {"added": "Added ↓", "updated": "Updated ↓", "price": "Rent ↑"}[sort]
+            rows.append([button("↕️ Sort: " + label, f"view:{token}:sort")])
         # Navigation is always the final row, including Home in empty states.
         nav = []
         if item and page["offset"] > 0:
@@ -213,12 +246,23 @@ class ReviewUI:
         with self.app.store.db:
             if message:
                 self.app.store.db.execute(
-                    "DELETE FROM review_views WHERE message_id=?", (message.message_id,)
+                    "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                    (message.message_id, self.recipient.get()),
                 )
             if item:
                 self.app.store.db.execute(
-                    "INSERT INTO review_views(token,source,mode,offset,item,message_id,parent) VALUES(?,?,?,?,?,?,?)",
-                    (token, source, mode, page["offset"], json.dumps(item), sent.message_id, parent),
+                    "INSERT INTO review_screens(token,source,mode,offset,item,message_id,parent,chat_id,sort) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (
+                        token,
+                        source,
+                        mode,
+                        page["offset"],
+                        json.dumps(item),
+                        sent.message_id,
+                        parent,
+                        self.recipient.get(),
+                        sort,
+                    ),
                 )
         return sent
 
@@ -228,24 +272,33 @@ class ReviewUI:
         callback = update.callback_query
         message = callback.message if callback else update.message
         sender = callback.from_user if callback else message.from_user if message else None
-        owner = self.app.settings.allowed_user_id
-        # Both checks precede any source reads, writes or Telegram response.
         if (
             not sender
-            or sender.id != owner
             or not isinstance(message, Message)
-            or message.chat.type != "private"
-            or message.chat.id != owner
+            or not self.app.audience.authorize(sender, message, callback)
         ):
             return
+        token = self.recipient.set(sender.id)
+        try:
+            log.info(
+                "review.open recipient=%s operation=%s", sender.id, "callback" if callback else "command"
+            )
+            await self._handle(update, message, callback)
+        finally:
+            self.recipient.reset(token)
+
+    async def _handle(self, update, message, callback):
         async with self.lock:
             if not callback:
                 command = (message.text or "").split("@", 1)[0]
                 source = next(iter(self.sources))
-                if command in ("/start", "/menu"):
+                if command == "/start" and self.recipient.get() != self.app.settings.allowed_user_id:
+                    if not await self.app.housing_guide(self.recipient.get()):
+                        await self.home()
+                elif command in ("/start", "/menu"):
                     await self.home()
                 elif command == "/vibecoding":
-                    await self.app.send("Under construction")
+                    await self.display("Under construction", None, self.menu())
                 elif command == "/housing":
                     await self.housing(source)
                 elif command in ("/queue", "/favorites"):
@@ -276,7 +329,8 @@ class ReviewUI:
                 await self.home(message)
                 with self.app.store.db:
                     self.app.store.db.execute(
-                        "DELETE FROM review_views WHERE message_id=?", (message.message_id,)
+                        "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                        (message.message_id, self.recipient.get()),
                     )
                 return
             if data.startswith("housing:"):
@@ -296,11 +350,13 @@ class ReviewUI:
             if (
                 len(parts) != 3
                 or parts[0] != "view"
-                or parts[2] not in ("prev", "next", "viewed", "favorite", "favorites", "queue", "position")
+                or parts[2]
+                not in ("prev", "next", "viewed", "favorite", "favorites", "queue", "position", "sort")
             ):
                 return
             view = self.app.store.one(
-                "SELECT * FROM review_views WHERE token=? AND message_id=?", (parts[1], message.message_id)
+                "SELECT * FROM review_screens WHERE token=? AND message_id=? AND chat_id=?",
+                (parts[1], message.message_id, self.recipient.get()),
             )
             if not view or view["source"] not in self.sources:
                 await self.app.bot.answer_callback_query(
@@ -310,6 +366,14 @@ class ReviewUI:
             await self.app.bot.answer_callback_query(callback.id)
             offset = view["offset"]
             action = parts[2]
+            if action == "sort":
+                choices = ("added", "updated", "price")
+                sort = choices[(choices.index(view["sort"]) + 1) % len(choices)]
+                self.app.store.set(
+                    f"housing_sort:{self.recipient.get()}:{view['source']}:{view['mode']}", sort
+                )
+                await self.browse(view["source"], view["mode"], message=message, sort=sort)
+                return
             if action == "position":
                 return
             if action in ("favorites", "queue"):
@@ -327,18 +391,19 @@ class ReviewUI:
                 step = 0 if action == "next" and item.get("_detached") else 1 if action == "next" else -1
                 offset = max(0, offset + step)
             else:
-                await self.app.feeds[view["source"]].queue_request(
-                    item=(item["connector"], item["id"]), changes={action: not item[action]}
+                await self.queue_request(
+                    view["source"], item=(item["connector"], item["id"]), changes={action: not item[action]}
                 )
                 if view["mode"] == "favorites":
                     item[action] = not item[action]
                     item["_detached"] = not item["favorite"]
-                    current = await self.app.feeds[view["source"]].queue_request("favorites", offset)
+                    current = await self.queue_request(view["source"], "favorites", offset, sort=view["sort"])
                     total = current["total"] + int(item["_detached"])
                     await self.browse(
                         view["source"],
                         "favorites",
                         message=message,
+                        sort=view["sort"],
                         page={
                             "item": item,
                             "total": total,
@@ -347,4 +412,6 @@ class ReviewUI:
                         },
                     )
                     return
-            await self.browse(view["source"], view["mode"], offset, message, parent=view["parent"])
+            await self.browse(
+                view["source"], view["mode"], offset, message, parent=view["parent"], sort=view["sort"]
+            )

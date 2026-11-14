@@ -31,7 +31,7 @@ class QueueFeed:
             for i in range(3)
         ]
 
-    async def queue_request(self, mode="queue", offset=0, item=None, changes=None):
+    async def queue_request(self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added"):
         self.calls.append((mode, offset, item, changes))
         if item:
             next(i for i in self.items if (i["connector"], i["id"]) == item).update(changes)

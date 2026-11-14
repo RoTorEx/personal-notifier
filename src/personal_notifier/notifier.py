@@ -92,9 +92,14 @@ class Notifier:
                 self.store.db.execute("ALTER TABLE feed_notices ADD COLUMN presentation TEXT")
         if not self.store.get("notifier_since"):
             self.store.set("notifier_since", str(time.time()))
+        from personal_notifier.audience import HousingAudience
+
+        self.audience = HousingAudience(settings, self.store)
         self.bot = bot or Bot(settings.read_token())
         if bot is None:
-            self.bot.session.middleware.register(ChatPacer(self.store, settings.allowed_user_id))
+            self.bot.session.middleware.register(
+                ChatPacer(self.store, settings.allowed_user_id, self.audience.allowed)
+            )
         self.engine = ReadOnlyCoreClient(engine or CoreClient(settings))
         self.feeds = {source.name: FeedClient(source) for source in settings.sources}
         self.sessions: list[dict] = []
@@ -271,6 +276,12 @@ class Notifier:
                         ),
                     )
                 self.record("feed_cursor:" + source.name, str(page["next_cursor"]))
+            log.info(
+                "feed.captured source=%s events=%s cursor=%s",
+                source.name,
+                len(page["events"]),
+                page["next_cursor"],
+            )
             cursor = page["next_cursor"]
             if len(page["events"]) < 100:
                 break
@@ -288,7 +299,50 @@ class Notifier:
         queue_sources = {source.name for source in self.settings.sources if source.queue}
         for row in rows:
             if row["source"] in queue_sources:
-                sent = await self.review.summary(row["source"], row["body"])
+                pending = False
+                owner_message = None
+                for recipient in self.audience.recipients(row["event_id"]):
+                    # Producer reminders are for the owner's queue. Guests have their own clock.
+                    if recipient != self.settings.allowed_user_id and row["body"].startswith(
+                        ("🏠 Housing reminder", "Housing reminder")
+                    ):
+                        continue
+                    receipt = self.store.one(
+                        "SELECT telegram_id FROM housing_receipts WHERE source=? AND event_id=? AND recipient=?",
+                        (row["source"], row["event_id"], recipient),
+                    )
+                    if receipt:
+                        if recipient == self.settings.allowed_user_id:
+                            owner_message = receipt["telegram_id"]
+                        continue
+                    try:
+                        sent = await self.review.summary(row["source"], row["body"], recipient)
+                        with self.store.db:
+                            self.store.db.execute(
+                                "INSERT OR IGNORE INTO housing_receipts VALUES(?,?,?,?)",
+                                (row["source"], row["event_id"], recipient, sent.message_id),
+                            )
+                        self.store.set(f"housing_notice:{row['source']}:{recipient}", str(time.time()))
+                        log.info(
+                            "housing.delivered source=%s event=%s recipient=%s",
+                            row["source"],
+                            row["event_id"],
+                            recipient,
+                        )
+                        if recipient == self.settings.allowed_user_id:
+                            owner_message = sent.message_id
+                    except Exception as error:
+                        pending = True
+                        log.warning(
+                            "housing.delivery_failed recipient=%s error=%s", recipient, type(error).__name__
+                        )
+                if not pending and owner_message:
+                    with self.store.db:
+                        self.store.db.execute(
+                            "UPDATE feed_notices SET telegram_id=? WHERE source=? AND event_id=?",
+                            (owner_message, row["source"], row["event_id"]),
+                        )
+                continue
             elif row["presentation"]:
                 sent = await self.send_card(json.loads(row["presentation"]))
             else:
@@ -304,6 +358,51 @@ class Notifier:
                         "UPDATE feed_notices SET telegram_id=? WHERE source=? AND event_id=?",
                         (sent.message_id, row["source"], row["event_id"]),
                     )
+
+    async def housing_guide(self, recipient):
+        key = f"housing_guide:v1:{recipient}"
+        if self.store.get(key):
+            return False
+        source = next((s.name for s in self.settings.sources if s.queue), None)
+        if not source:
+            return False
+        text = (
+            "🏠 Housing · Quick guide\n\n"
+            "One queue for all selected areas.\n"
+            "Only advertised rent is filtered; building fees are extra.\n\n"
+            "View queue opens the listings. ⬅️ / ➡️ changes the card.\n"
+            "✓ Viewed hides it from your queue. ☆ / ★ Favorite saves or unsaves it.\n"
+            "Housing → Favorites opens saved listings. Unfavoriting keeps the current card for undo.\n"
+            "↕️ Sort cycles Added / Updated / Rent ↑. The source button opens the ad.\n"
+            "Back returns one screen; 🏠 Deck opens the main menu.\n\n"
+            "Your Viewed and Favorites are personal. Scans: 10 min; notifications: 15 min; queue reminders: hourly."
+        )
+        sent = await self.review.summary(source, text, recipient)
+        self.store.set(key, str(sent.message_id))
+        log.info("housing.guide_sent recipient=%s message=%s", recipient, sent.message_id)
+        return True
+
+    async def guest_reminders(self, source):
+        if self.store.one(
+            "SELECT 1 FROM feed_notices WHERE source=? AND telegram_id IS NULL", (source.name,)
+        ):
+            return
+        for member in self.audience.members():
+            recipient = member["user_id"]
+            key = f"housing_notice:{source.name}:{recipient}"
+            previous = float(self.store.get(key, str(member["joined_at"])))
+            if time.time() - previous < 3600:
+                continue
+            try:
+                page = await self.feeds[source.name].queue_request(actor=str(recipient))
+                if page["total"]:
+                    await self.review.summary(
+                        source.name, f"🏠 Housing reminder\n{page['total']} waiting in your queue", recipient
+                    )
+                    self.store.set(key, str(time.time()))
+                    log.info("housing.reminder recipient=%s total=%s", recipient, page["total"])
+            except Exception as error:
+                log.warning("housing.reminder_failed recipient=%s error=%s", recipient, type(error).__name__)
 
     async def pause(self, seconds):
         try:
@@ -328,7 +427,10 @@ class Notifier:
                 if self.stop.is_set():
                     break
             try:
+                log.info("feed.poll_started source=%s", source.name)
                 await self.collect_feed(source)
+                if source.queue:
+                    await self.guest_reminders(source)
                 self.store.set("source_success:" + source.name, str(time.time()))
             except Exception as error:
                 log.warning("Source %s will retry: %s", source.name, type(error).__name__)
@@ -391,6 +493,16 @@ class Notifier:
                 )
             else:
                 await self.bot.delete_my_commands()
+            if queue_enabled:
+                for recipient in [self.settings.allowed_user_id] + [
+                    m["user_id"] for m in self.audience.members()
+                ]:
+                    try:
+                        await self.housing_guide(recipient)
+                    except Exception as error:
+                        log.warning(
+                            "housing.guide_failed recipient=%s error=%s", recipient, type(error).__name__
+                        )
             tasks = [asyncio.create_task(self.notifications())]
             if queue_enabled:
                 tasks.append(asyncio.create_task(self.updates_loop()))

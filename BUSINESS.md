@@ -1,6 +1,7 @@
 # Personal Notifier
 
-One private Telegram notification feed for the configured numeric owner. Independent
+One private Telegram notification feed for the configured numeric owner, with
+explicitly invited housing-only participants. Independent
 sources own their data: Housing Watch owns collection, cards, queue membership and
 viewed/favorite flags; Vibecoding Core owns native sessions and execution. This
 repository owns Telegram identity, event cursors, delivery receipts and review UI.
@@ -20,15 +21,18 @@ Back returns to Housing, while the final 🏠 Deck exit returns to the Home deck
 No collection switch button or counter button appears inside the carousel.
 Empty states retain Back/Deck. Home entries include emoji.
 
-Only allowed_user_id in its matching private chat can open screens or mutate source
-state. Check both sender ID and chat before any source request or Telegram response;
-ignore other users, groups and unrelated input. All outgoing messages/edits target
-that same configured ID. Telegram commands are advertised only in that owner's chat.
-The startup identity check remains pinned to the existing bot username/token.
+The numeric allowed_user_id retains all original notices. housing_usernames
+explicitly invites housing-only users: the first private /start from the exact
+Telegram username pins its numeric ID in durable housing_members. An existing
+binding never transfers to a replacement username holder. Both sender and private
+chat ID must match before reads, writes or replies. Unlisted users and groups are
+ignored. Housing participants receive only housing notices, never Core outcomes.
+Commands remain advertised only in the owner's chat; participants can use /start,
+/menu, /housing and the same inline controls.
 
 A small independent getUpdates loop handles only deck commands and the registered
 review callbacks. It never dispatches to historical BotRuntime, agent input,
-execution approval, enrollment, uploads or provider settings. CoreClient remains
+execution approval, legacy enrollment, uploads or provider settings. CoreClient remains
 strictly read-only: /health, /sessions, /live and /events?after=. Incoming text or
 source data can never become instructions or execution. No Docker socket, producer
 DB, host home or provider token is mounted.
@@ -37,7 +41,8 @@ DB, host home or provider token is mounted.
 
 Queue-capable sources explicitly opt into queue=true in TOML. FeedClient uses GET
 /queue and narrowly scoped PATCH /items/{connector}/{id} on that source's Unix socket;
-only absolute viewed/favorite booleans are accepted. No direct producer DB writes.
+only absolute viewed/favorite booleans are accepted. Guests pass an opaque actor
+identity; the empty legacy actor keeps the owner's existing review flags unchanged. No direct producer DB writes.
 A separate source queue capability cannot enable mutations against Vibecoding Core.
 
 Cards use source-owned seller, Published and Updated on separate bold lines,
@@ -52,6 +57,12 @@ Viewed hides a listing without deleting it. Favorites can include viewed items a
 offer Unview. Review views persist opaque tokens tied to source item and Telegram
 message ID. Repeated stale callbacks cannot toggle another item. Writes are
 absolute/idempotent; restart keeps source flags and the current undoable card.
+One combined area feed has per-person Viewed/Favorites. Tokens are scoped to
+(chat_id, message_id), since private chats can reuse message IDs. The additive
+review_screens migration retains the owner's live tokens and leaves legacy rows.
+↕️ Sort cycles Added (discovery descending), Updated (source refresh descending)
+and Rent (advertised PLN ascending, unknown prices last), persists per collection/
+person, and resets to the first card when changed.
 Carousel buttons edit the existing message. Telegram cannot remove photo media
 through an edit: returning to a text menu or empty screen sends the genuine text
 screen and removes the previous photo message. Never fabricate a placeholder image.
@@ -67,7 +78,8 @@ capture advances past legacy individual housing.listing.* events without pushing
 them. Only *.queue.summary and *.queue.reminder enter delivery. New findings produce
 one Housing alert count with View queue. Zero-found scans are silent. A nonempty
 queue may produce Housing reminder after 3,600 seconds since the previous notice;
-empty queues never remind. Browsing uses current old-plus-new unviewed entries.
+empty queues never remind. Each invited participant has an independent hourly
+reminder clock and personal queue count; owner producer reminders do not fan out. Browsing uses current old-plus-new unviewed entries.
 Pure source updates refresh cards without creating new-identity notifications.
 
 Generic non-queue feeds retain their existing text/photo notifications. Vibecoding
@@ -75,6 +87,11 @@ keeps its distinct [Vibecoding] outcome notices. Source captures and cursors com
 atomically; known successful Telegram message IDs never replay on restart. A lost
 acceptance response or crash before receipt may repeat a send: exactly-once is not
 claimed. Producer logs have no consumer acknowledgements or automatic pruning.
+Housing delivery records one receipt per source event/recipient. A partial failure
+retries only missing recipients; enrollment starts at the current event watermark
+rather than replaying historical alerts. Startup and a participant's first /start
+send one durable Quick guide with a View queue button per person. This guide is an
+explicitly requested one-time release notice, not a recurring reminder.
 
 Each source, Core collection, owner polling and delivery has an independent async
 loop, bounded HTTP requests and durable offsets. A slow source cannot block others.
@@ -95,3 +112,8 @@ Verify the actual configured recipient, source socket reads, Telegram acceptance
 installed revision on the VPS. Do not claim physical clipboard behavior or a user's
 reading from a successful send. See docs/OPERATIONS.md for updates and recovery.
 Preserve source cursors, session identity, queue rows and existing Telegram receipts.
+
+Activity logs use the existing container journal: feed polls/cursors, successful or
+failed deliveries with numeric recipient/event IDs, enrollment and guide receipts.
+The producer journal records source/scan lifecycle and successful review mutations.
+Never log bot tokens, phone numbers, listing descriptions or incoming message text.

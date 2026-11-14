@@ -78,7 +78,7 @@ class FeedClient:
 
             return json.loads(raw)
 
-    async def queue_request(self, mode="queue", offset=0, item=None, changes=None):
+    async def queue_request(self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added"):
         if not self.source.queue:
             raise PermissionError("Queue controls are disabled for this source")
         if self.http is None:
@@ -88,7 +88,9 @@ class FeedClient:
         if item is None:
             if mode not in ("queue", "favorites") or type(offset) is not int or offset < 0:
                 raise ValueError("Invalid queue request")
-            request = self.http.get("http://source/queue", params={"mode": mode, "offset": offset})
+            request = self.http.get(
+                "http://source/queue", params={"mode": mode, "offset": offset, "actor": actor, "sort": sort}
+            )
         else:
             if (
                 not isinstance(changes, dict)
@@ -102,6 +104,7 @@ class FeedClient:
             connector, identifier = item
             request = self.http.patch(
                 "http://source/items/" + quote(connector, safe="") + "/" + quote(identifier, safe=""),
+                params={"actor": actor, "sort": sort},
                 json=changes,
             )
         async with request as response:

@@ -55,3 +55,20 @@ the first cutover attempt. No files were deleted to recover. Old state/image and
 installed-operator backups remain under the prior room and config/migration.
 A rollback after new sends must reconcile the current queue/receipts before any
 old process is reactivated; restoring an older queue blindly can resend messages.
+
+## Housing participants and logs
+
+Configure housing_usernames outside Git. Each invited user must privately send
+/start after the supporting release is installed; Bot API cannot resolve arbitrary
+private usernames or initiate a conversation before Start. Read back housing_members
+to verify numeric enrollment, then housing_receipts and housing_guide:v1:<id> for
+Telegram acceptance. Never report a recipient as enrolled from configuration alone.
+The owner retains Vibecoding notices; participants receive housing only.
+
+The producer owns actor-scoped review_actors. Deploy both sides before enabling a
+participant; an older producer ignores unknown actor queries. Reconcile source
+eligibility using the updated search config while preserving existing flags.
+Personal Notifier preserves legacy review_views and migrates owner screens into
+chat-scoped review_screens. Keep backups before either additive migration.
+Read activity through docker logs personal-notifier and journalctl -u housing-watch;
+existing journald retention applies. No extra file log or unbounded duplicate sink.

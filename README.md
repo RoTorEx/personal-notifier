@@ -12,8 +12,9 @@ make check
 uv run --frozen personal-notifier --config /path/to/bot.toml
 ```
 
-Use /menu or /housing in the configured owner's private chat. Only that numeric
-Telegram ID receives notices or controls the bot. Unrelated input never reaches an
+Use /menu or /housing in the configured owner's private chat. The numeric owner receives all notices. Optional housing_usernames invite housing-only
+participants; each first private /start pins the Telegram user ID. Viewed/Favorites
+and carousel state are personal. Sort cycles discovery, update time and base rent. Unrelated input never reaches an
 agent. Enable queue=true only for sources implementing the private queue/review API;
 Vibecoding Core remains read-only. No producer database is mounted.
 

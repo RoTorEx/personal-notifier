@@ -26,6 +26,7 @@ class Settings:
     host_id: str = "vps"
     bot_username: str = ""
     web_url: str = "https://vibecoding.com"
+    housing_usernames: tuple[str, ...] = ()
     core_enabled: bool = True
     sources: tuple[FeedSource, ...] = ()
     confirmation_required: bool = False
@@ -66,6 +67,13 @@ class Settings:
                 raise ValueError("queue must be boolean")
             sources.append(FeedSource(name, socket, interval, queue))
         values["sources"] = tuple(sources)
+        usernames = values.get("housing_usernames", [])
+        if not isinstance(usernames, (list, tuple)) or any(
+            not isinstance(n, str) or not re.fullmatch(r"[a-zA-Z0-9_]{5,32}", n.lstrip("@"))
+            for n in usernames
+        ):
+            raise ValueError("housing_usernames must contain Telegram usernames")
+        values["housing_usernames"] = tuple(n.lstrip("@").lower() for n in usernames)
         if unknown := set(values) - set(cls.__dataclass_fields__):
             raise ValueError(f"Unknown Telegram configuration keys: {', '.join(sorted(unknown))}")
         data = Path(values.pop("data_dir", "~/.local/state/personal-notifier")).expanduser()

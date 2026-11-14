@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Invite housing-only participants through pinned private Telegram enrollment, personal review flags and chat-scoped carousel tokens.
+- Deliver housing events per recipient with durable receipts and independent hourly queue reminders; keep Core outcomes owner-only.
+- Add persistent Added/Updated/Rent sorting and an explicitly requested one-time guide with queue access.
+- Log feed polling, delivery and review activity without credentials or listing contents.
+
 ## [0.1.34] - 2026-11-13
 
 - Add a Housing section menu with separate Queue and Favorites carousels, emoji navigation and a source refresh footer.

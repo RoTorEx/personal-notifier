@@ -18,8 +18,9 @@ log = logging.getLogger(__name__)
 
 
 class ChatPacer(BaseRequestMiddleware):
-    def __init__(self, store: BotStore, owner: int):
+    def __init__(self, store: BotStore, owner: int, allowed=None):
         self.store, self.owner = store, owner
+        self.allowed = allowed or (lambda chat: chat == owner)
         # One private-chat write per second, shared by sends, edits and deletes.
         self.interval = 1.05
         self.acknowledged: dict[str, None] = {}
@@ -45,7 +46,7 @@ class ChatPacer(BaseRequestMiddleware):
             if len(self.acknowledged) > 512:
                 self.acknowledged.pop(next(iter(self.acknowledged)))
             return await make_request(bot, cast(TelegramMethod[TelegramType], method))
-        if getattr(method, "chat_id", None) != self.owner or method.__api_method__.startswith("get"):
+        if not self.allowed(getattr(method, "chat_id", None)) or method.__api_method__.startswith("get"):
             return await make_request(bot, method)
         async with self.lock:
             remaining = self.remaining
