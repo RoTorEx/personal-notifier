@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.35] - 2026-11-14
+
 - Invite housing-only participants through pinned private Telegram enrollment, personal review flags and chat-scoped carousel tokens.
 - Deliver housing events per recipient with durable receipts and independent hourly queue reminders; keep Core outcomes owner-only.
 - Add persistent Added/Updated/Rent sorting and an explicitly requested one-time guide with queue access.
