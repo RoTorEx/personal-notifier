@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Send queue reminders only during 12:00–00:00 Europe/Warsaw for every housing recipient; new-finding alerts remain unrestricted.
+- Suppress previously queued overnight reminders without false delivery receipts or a noon backlog; retain existing participant enrollment and one-time guide receipts.
+
 ## [0.1.35] - 2026-11-14
 
 - Invite housing-only participants through pinned private Telegram enrollment, personal review flags and chat-scoped carousel tokens.

@@ -27,6 +27,7 @@ from personal_notifier.client import CoreClient, ReadOnlyCoreClient
 from personal_notifier.config import Settings
 from personal_notifier.feeds import FeedClient, validate_page
 from personal_notifier.pacing import ChatPacer
+from personal_notifier.schedule import reminders_allowed
 from personal_notifier.store import BotStore
 
 log = logging.getLogger(__name__)
@@ -90,6 +91,11 @@ class Notifier:
         if "presentation" not in columns:
             with self.store.db:
                 self.store.db.execute("ALTER TABLE feed_notices ADD COLUMN presentation TEXT")
+        if "suppressed" not in columns:
+            with self.store.db:
+                self.store.db.execute(
+                    "ALTER TABLE feed_notices ADD COLUMN suppressed INTEGER NOT NULL DEFAULT 0"
+                )
         if not self.store.get("notifier_since"):
             self.store.set("notifier_since", str(time.time()))
         from personal_notifier.audience import HousingAudience
@@ -293,12 +299,23 @@ class Notifier:
             FROM notifier_notices WHERE telegram_id IS NULL
             UNION ALL
             SELECT source,event_id,body,url,NULL AS session_id,priority,created,presentation
-            FROM feed_notices WHERE telegram_id IS NULL
+            FROM feed_notices WHERE telegram_id IS NULL AND suppressed=0
             ORDER BY priority DESC,created,event_id LIMIT 10
         """)
         queue_sources = {source.name for source in self.settings.sources if source.queue}
         for row in rows:
             if row["source"] in queue_sources:
+                if (
+                    row["body"].startswith(("🏠 Housing reminder", "Housing reminder"))
+                    and not reminders_allowed()
+                ):
+                    with self.store.db:
+                        self.store.db.execute(
+                            "UPDATE feed_notices SET suppressed=1 WHERE source=? AND event_id=?",
+                            (row["source"], row["event_id"]),
+                        )
+                    log.info("housing.reminder_suppressed source=%s event=%s", row["source"], row["event_id"])
+                    continue
                 pending = False
                 owner_message = None
                 for recipient in self.audience.recipients(row["event_id"]):
@@ -375,7 +392,7 @@ class Notifier:
             "Housing → Favorites opens saved listings. Unfavoriting keeps the current card for undo.\n"
             "↕️ Sort cycles Added / Updated / Rent ↑. The source button opens the ad.\n"
             "Back returns one screen; 🏠 Deck opens the main menu.\n\n"
-            "Your Viewed and Favorites are personal. Scans: 10 min; notifications: 15 min; queue reminders: hourly."
+            "Your Viewed and Favorites are personal. Scans: 10 min; notifications: 15 min; queue reminders: hourly, 12:00–00:00 Warsaw."
         )
         sent = await self.review.summary(source, text, recipient)
         self.store.set(key, str(sent.message_id))
@@ -383,8 +400,11 @@ class Notifier:
         return True
 
     async def guest_reminders(self, source):
+        if not reminders_allowed():
+            return
         if self.store.one(
-            "SELECT 1 FROM feed_notices WHERE source=? AND telegram_id IS NULL", (source.name,)
+            "SELECT 1 FROM feed_notices WHERE source=? AND telegram_id IS NULL AND suppressed=0",
+            (source.name,),
         ):
             return
         for member in self.audience.members():

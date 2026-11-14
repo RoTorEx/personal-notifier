@@ -78,7 +78,12 @@ capture advances past legacy individual housing.listing.* events without pushing
 them. Only *.queue.summary and *.queue.reminder enter delivery. New findings produce
 one Housing alert count with View queue. Zero-found scans are silent. A nonempty
 queue may produce Housing reminder after 3,600 seconds since the previous notice;
-empty queues never remind. Each invited participant has an independent hourly
+empty queues never remind. Send reminders only from 12:00 inclusive until 00:00
+exclusive in Europe/Warsaw, using the event date's CET/CEST offset. New-finding
+alerts remain unrestricted. The sender checks the actual delivery window even for
+previously queued producer reminders: mark excluded notices suppressed, retaining
+history without fabricating a Telegram receipt or replaying a backlog at noon.
+Each invited participant has an independent hourly
 reminder clock and personal queue count; owner producer reminders do not fan out. Browsing uses current old-plus-new unviewed entries.
 Pure source updates refresh cards without creating new-identity notifications.
 

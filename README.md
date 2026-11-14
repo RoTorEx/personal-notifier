@@ -19,7 +19,8 @@ agent. Enable queue=true only for sources implementing the private queue/review 
 Vibecoding Core remains read-only. No producer database is mounted.
 
 Housing alerts contain a new-findings count and View queue, without individual
-apartment pushes. Empty scans stay silent; nonempty queues may remind once per hour. Housing feed capture runs on quarter-hour
+apartment pushes. Empty scans stay silent; nonempty queues may remind once per hour from 12:00 to 00:00 Europe/Warsaw.
+New-finding alerts remain available 24/7. Housing feed capture runs on quarter-hour
 boundaries while source scans run every ten minutes. Known delivery receipts and source cursors survive updates and restarts.
 
 See [configuration](config.example.toml), [business rules](BUSINESS.md),

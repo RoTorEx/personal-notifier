@@ -72,3 +72,9 @@ Personal Notifier preserves legacy review_views and migrates owner screens into
 chat-scoped review_screens. Keep backups before either additive migration.
 Read activity through docker logs personal-notifier and journalctl -u housing-watch;
 existing journald retention applies. No extra file log or unbounded duplicate sink.
+
+Queue-reminder quiet time is 00:00–12:00 Europe/Warsaw. This applies only to
+reminders, not new findings, guides or direct owner/participant UI actions. The
+producer avoids night reminder events, while the sender suppresses queued stale
+reminders with feed_notices.suppressed=1 and no synthetic telegram_id. The additive
+column defaults to zero for existing rows; retain receipts and guide keys on update.
