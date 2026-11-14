@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.36] - 2026-11-14
+
 - Send queue reminders only during 12:00–00:00 Europe/Warsaw for every housing recipient; new-finding alerts remain unrestricted.
 - Suppress previously queued overnight reminders without false delivery receipts or a noon backlog; retain existing participant enrollment and one-time guide receipts.
 
