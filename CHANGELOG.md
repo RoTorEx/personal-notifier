@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Add owner-only Management with topic/user subscription views and durable product-topic permissions.
+- Preserve pinned housing users and personal review state; disabling Housing blocks delivery and old review buttons.
+- Keep Market/Home source integration and Vibecoding migration pending.
+
 ## [0.1.39] - 2026-11-15
 
 - Notify all housing recipients only for new matching apartments; remove participant queue reminders and reminder-window scheduling.

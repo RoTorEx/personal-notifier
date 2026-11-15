@@ -235,3 +235,22 @@ async def test_opening_queue_from_digest_resets_price_order_to_publication(pair)
     await pair.handle(callback(digest, action(digest, "View queue")))
     card = pair.bot.session.messages[digest.message_id]
     assert action(card, "Published ↓")
+
+
+async def test_management_owner_only_and_unsubscription_blocks_old_buttons(pair):
+    await pair.handle(start())
+    await pair.handle(Update.model_validate(update(text="/menu")))
+    menu = list(pair.bot.session.messages.values())[-1]
+    await pair.handle(callback(menu, "manage:home"))
+    management = list(pair.bot.session.messages.values())[-1]
+    assert "Management" in management.text
+    await pair.handle(callback(management, "manage:topic:0"))
+    topic = list(pair.bot.session.messages.values())[-1]
+    assert "rental_partner" in str(topic.reply_markup)
+    await pair.handle(callback(topic, "manage:set:99:0:0:topic"))
+    assert not pair.audience.subscriptions.allowed(99, "housing")
+    before = len(pair.feeds["housing"].calls)
+    await pair.handle(callback(topic, "browse:housing:queue", owner=99))
+    assert len(pair.feeds["housing"].calls) == before
+    await pair.handle(callback(topic, "manage:set:99:0:1:topic", owner=99))
+    assert not pair.audience.subscriptions.allowed(99, "housing")

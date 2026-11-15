@@ -9,7 +9,7 @@ Node Radar retains infrastructure notifications. No source implementation is imp
 
 ## Home deck and owner boundary
 
-The English Home deck contains Vibecoding and Housing. Vibecoding shows only an
+The English Home deck contains Vibecoding, Housing when subscribed, and owner-only Management. Vibecoding shows only an
 Under construction callback alert; its existing independent push notices continue.
 Housing opens a text section menu with 📋 Queue and ⭐ Favorites. Each collection
 has its own carousel. Viewed removes a card from Queue immediately. Removing a
@@ -132,3 +132,20 @@ Activity logs use the existing container journal: feed polls/cursors, successful
 failed deliveries with numeric recipient/event IDs, enrollment and guide receipts.
 The producer journal records source/scan lifecycle and successful review mutations.
 Never log bot tokens, phone numbers, listing descriptions or incoming message text.
+
+## Product subscriptions
+
+Personal Notifier owns product_users, product_subscriptions and per-source
+subscription_watermarks. Stable topics are housing, market.astronomy,
+market.digital_pianos and home.temperature. Only Housing is currently connected;
+Market/Home integrations and the Vibecoding-to-Radar migration remain pending.
+Existing pinned members migrate to Housing only. The owner starts subscribed to
+all four topics; startup never overrides later subscription changes.
+Management presents Topics → subscribers and Users → subscriptions, as two views
+of the same persisted relation. Only the numeric owner can inspect or change it.
+Existing username-based invitations remain the enrollment mechanism in this stage.
+A disabled Housing subscription excludes recipients before sending and rejects
+source reads/writes and stale carousel callbacks. User identity and existing review
+state remain stored. Reenabling records the latest captured event per source so
+already captured listing backlog is not replayed; producer-watermark enrollment
+must be completed before connecting additional product feeds.

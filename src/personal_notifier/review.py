@@ -46,22 +46,103 @@ class ReviewUI:
         self.app.store.db.commit()
 
     async def queue_request(self, source, mode="queue", offset=0, **kwargs):
+        if source not in self.sources:
+            raise PermissionError("Subscription required")
         if self.recipient.get() != self.app.settings.allowed_user_id:
             kwargs["actor"] = str(self.recipient.get())
         return await self.app.feeds[source].queue_request(mode, offset, **kwargs)
 
     @property
     def sources(self):
-        return {source.name: source for source in self.app.settings.sources if source.queue}
+        return {
+            source.name: source
+            for source in self.app.settings.sources
+            if source.queue and self.app.audience.subscriptions.allowed(self.recipient.get(), "housing")
+        }
 
     def menu(self):
-        source = next(iter(self.sources))
-        return InlineKeyboardMarkup(
-            inline_keyboard=[
-                [button("🛠 Vibecoding", "vibecoding")],
-                [button("🏠 Housing", f"housing:{source}")],
+        rows = [[button("🛠 Vibecoding", "vibecoding")]]
+        for source in self.sources:
+            rows.append([button("🏠 Housing", f"housing:{source}")])
+        if self.recipient.get() == self.app.settings.allowed_user_id:
+            rows.append([button("⚙️ Management", "manage:home")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
+
+    async def management(self, data, message):
+        if self.recipient.get() != self.app.settings.allowed_user_id:
+            return
+        from personal_notifier.subscriptions import TOPICS
+
+        parts = data.split(":")
+        topics = list(TOPICS)
+        users = self.app.store.rows("SELECT * FROM product_users ORDER BY user_id")
+        rows = []
+        title = "⚙️ Management"
+        if parts == ["manage", "home"]:
+            rows = [[button("🔔 Topics", "manage:topics"), button("👥 Users", "manage:users")]]
+        elif parts == ["manage", "topics"]:
+            rows = [[button(label, f"manage:topic:{index}")] for index, label in enumerate(TOPICS.values())]
+        elif parts == ["manage", "users"]:
+            rows = [[button(user["label"], f"manage:user:{user['user_id']}")] for user in users]
+        elif len(parts) == 3 and parts[1] in ("topic", "user"):
+            if parts[1] == "topic":
+                index = int(parts[2])
+                if not 0 <= index < len(topics):
+                    return
+                title = TOPICS[topics[index]]
+                rows = [
+                    [
+                        button(
+                            (
+                                "✅ "
+                                if self.app.audience.subscriptions.allowed(user["user_id"], topics[index])
+                                else "⬜ "
+                            )
+                            + user["label"],
+                            f"manage:set:{user['user_id']}:{index}:{int(not self.app.audience.subscriptions.allowed(user['user_id'], topics[index]))}:topic",
+                        )
+                    ]
+                    for user in users
+                ]
+            else:
+                user_id = int(parts[2])
+                if not any(user["user_id"] == user_id for user in users):
+                    return
+                title = "👤 User " + str(user_id)
+                rows = [
+                    [
+                        button(
+                            ("✅ " if self.app.audience.subscriptions.allowed(user_id, topic) else "⬜ ")
+                            + label,
+                            f"manage:set:{user_id}:{index}:{int(not self.app.audience.subscriptions.allowed(user_id, topic))}:user",
+                        )
+                    ]
+                    for index, (topic, label) in enumerate(TOPICS.items())
+                ]
+        elif len(parts) == 6 and parts[1] == "set":
+            user_id, index, enabled = map(int, parts[2:5])
+            if not 0 <= index < len(topics) or enabled not in (0, 1) or parts[5] not in ("topic", "user"):
+                return
+            self.app.audience.subscriptions.set(self.recipient.get(), user_id, topics[index], bool(enabled))
+            log.info(
+                "subscription.changed actor=%s recipient=%s topic=%s enabled=%s",
+                self.recipient.get(),
+                user_id,
+                topics[index],
+                enabled,
+            )
+            return await self.management(
+                f"manage:{parts[5]}:{index if parts[5] == 'topic' else user_id}", message
+            )
+        else:
+            return
+        rows.append(
+            [
+                button("⬅️ Back", "manage:home" if parts != ["manage", "home"] else "home"),
+                button("🏠 Deck", "home"),
             ]
         )
+        await self.display(title, None, InlineKeyboardMarkup(inline_keyboard=rows), message)
 
     async def summary(self, source, text, recipient=None, event_id=None, new_listing=None):
         if text.startswith(("🏠 Housing reminder", "Housing reminder")):
@@ -72,6 +153,8 @@ class ReviewUI:
         # Read the same personal unviewed queue used by the carousel at delivery.
         if new_listing or re.search(r"\d+ (?:in queue|waiting in your queue)", text):
             target = recipient or self.app.settings.allowed_user_id
+            if not self.app.audience.subscriptions.allowed(target, "housing"):
+                return None
             kwargs = {"actor": str(target)} if target != self.app.settings.allowed_user_id else {}
             is_new = new_listing if new_listing is not None else re.search(r"\d+ new ·", text) is not None
             if is_new:
@@ -311,7 +394,7 @@ class ReviewUI:
         async with self.lock:
             if not callback:
                 command = (message.text or "").split("@", 1)[0]
-                source = next(iter(self.sources))
+                source = next(iter(self.sources), None)
                 if command == "/start" and self.recipient.get() != self.app.settings.allowed_user_id:
                     if not await self.app.housing_guide(self.recipient.get()):
                         await self.home()
@@ -319,9 +402,9 @@ class ReviewUI:
                     await self.home()
                 elif command == "/vibecoding":
                     await self.display("Under construction", None, self.menu())
-                elif command == "/housing":
+                elif command == "/housing" and source:
                     await self.housing(source)
-                elif command in ("/queue", "/favorites"):
+                elif command in ("/queue", "/favorites") and source:
                     await self.browse(
                         source,
                         "favorites" if command == "/favorites" else "queue",
@@ -329,6 +412,14 @@ class ReviewUI:
                     )
                 return
             data = callback.data or ""
+            if data.startswith("manage:"):
+                if self.recipient.get() == self.app.settings.allowed_user_id:
+                    await self.app.bot.answer_callback_query(callback.id)
+                    try:
+                        await self.management(data, message)
+                    except (ValueError, PermissionError):
+                        return
+                return
             if data == "vibecoding":
                 await self.app.bot.answer_callback_query(
                     callback.id, text="Under construction", show_alert=True

@@ -322,7 +322,7 @@ class Notifier:
                     continue
                 pending = False
                 owner_message = None
-                for recipient in self.audience.recipients(row["event_id"]):
+                for recipient in self.audience.recipients(row["event_id"], row["source"]):
                     receipt = self.store.one(
                         "SELECT telegram_id FROM housing_receipts WHERE source=? AND event_id=? AND recipient=?",
                         (row["source"], row["event_id"], recipient),

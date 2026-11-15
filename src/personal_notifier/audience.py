@@ -21,6 +21,10 @@ class HousingAudience:
                 telegram_id INTEGER NOT NULL,PRIMARY KEY(source,event_id,recipient));
         """)
 
+        from personal_notifier.subscriptions import Subscriptions
+
+        self.subscriptions = Subscriptions(store, settings.allowed_user_id)
+
     def members(self):
         return [
             row
@@ -54,10 +58,16 @@ class HousingAudience:
                 "INSERT INTO housing_members(username,user_id,joined_event_id,joined_at) VALUES(?,?,?,?) ON CONFLICT(username) DO UPDATE SET active=1",
                 (username, sender.id, watermark, time.time()),
             )
+        with self.store.db:
+            self.subscriptions.enroll(sender.id, username)
         log.info("housing.member_joined recipient=%s", sender.id)
         return True
 
-    def recipients(self, event_id):
-        return [self.settings.allowed_user_id] + [
-            r["user_id"] for r in self.members() if event_id > r["joined_event_id"]
+    def recipients(self, event_id, source="housing", topic="housing"):
+        eligible = set(self.subscriptions.recipients(topic, source, event_id))
+        return [
+            recipient
+            for recipient in [self.settings.allowed_user_id]
+            + [r["user_id"] for r in self.members() if event_id > r["joined_event_id"]]
+            if recipient in eligible
         ]
