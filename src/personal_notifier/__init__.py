@@ -1,2 +1,2 @@
-__version__ = "0.1.39"
+__version__ = "0.2.0"
 BOT_NAME = "Personal Notifier"

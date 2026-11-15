@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-15
+
 - Read producer watermarks before first subscription and resubscription; unavailable sources keep enrollment pending without replaying uncaptured historical events.
 - Keep owner Management reachable when Housing is disabled.
 
