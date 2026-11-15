@@ -123,7 +123,22 @@ class ReviewUI:
             user_id, index, enabled = map(int, parts[2:5])
             if not 0 <= index < len(topics) or enabled not in (0, 1) or parts[5] not in ("topic", "user"):
                 return
-            self.app.audience.subscriptions.set(self.recipient.get(), user_id, topics[index], bool(enabled))
+            heads = None
+            if enabled and not self.app.audience.subscriptions.allowed(user_id, topics[index]):
+                try:
+                    heads = await self.app.subscription_heads(topics[index])
+                except Exception as error:
+                    log.warning("subscription.source_unavailable error=%s", type(error).__name__)
+                    await self.display(
+                        "Source unavailable. Subscription unchanged. Please retry.",
+                        None,
+                        self.menu(),
+                        message,
+                    )
+                    return
+            self.app.audience.subscriptions.set(
+                self.recipient.get(), user_id, topics[index], bool(enabled), heads=heads
+            )
             log.info(
                 "subscription.changed actor=%s recipient=%s topic=%s enabled=%s",
                 self.recipient.get(),
@@ -370,7 +385,7 @@ class ReviewUI:
         return sent
 
     async def handle(self, update):
-        if not self.sources:
+        if not any(source.queue for source in self.app.settings.sources):
             return
         callback = update.callback_query
         message = callback.message if callback else update.message
@@ -392,6 +407,23 @@ class ReviewUI:
 
     async def _handle(self, update, message, callback):
         async with self.lock:
+            pending = self.app.store.rows(
+                "SELECT topic FROM subscription_pending WHERE user_id=?", (self.recipient.get(),)
+            )
+            for row in pending:
+                try:
+                    heads = await self.app.subscription_heads(row["topic"])
+                except Exception as error:
+                    log.warning(
+                        "subscription.enrollment_pending recipient=%s error=%s",
+                        self.recipient.get(),
+                        type(error).__name__,
+                    )
+                    await self.display("Source unavailable. Please try /start again.", None, self.menu())
+                    return
+                self.app.audience.subscriptions.set(
+                    self.app.settings.allowed_user_id, self.recipient.get(), row["topic"], True, heads=heads
+                )
             if not callback:
                 command = (message.text or "").split("@", 1)[0]
                 source = next(iter(self.sources), None)

@@ -146,6 +146,10 @@ of the same persisted relation. Only the numeric owner can inspect or change it.
 Existing username-based invitations remain the enrollment mechanism in this stage.
 A disabled Housing subscription excludes recipients before sending and rejects
 source reads/writes and stale carousel callbacks. User identity and existing review
-state remain stored. Reenabling records the latest captured event per source so
-already captured listing backlog is not replayed; producer-watermark enrollment
-must be completed before connecting additional product feeds.
+state remain stored. Reenabling reads each connected producer through its current event watermark
+without capturing notices or advancing capture cursors. New enrollment remains
+pending with Housing disabled until the same read succeeds; a later private
+request retries it. Reads have a ten-second overall budget and at most 100 pages
+per producer; failure leaves the subscription unchanged. Disconnected future
+topics have no producers yet. Management remains accessible to the owner even
+when every review subscription is disabled.

@@ -297,6 +297,26 @@ class Notifier:
             if len(page["events"]) < 100:
                 break
 
+    async def subscription_heads(self, topic):
+        """Read producer watermarks without capturing or advancing delivery cursors."""
+        from personal_notifier.feeds import validate_page
+
+        heads = {}
+        async with asyncio.timeout(10):
+            for source in self.settings.sources:
+                if not source.queue or topic != "housing":
+                    continue
+                cursor = int(self.store.get("feed_cursor:" + source.name, "0"))
+                for _ in range(100):
+                    page = validate_page(await self.feeds[source.name].read(cursor), cursor)
+                    cursor = page["next_cursor"]
+                    if len(page["events"]) < 100:
+                        heads[source.name] = cursor
+                        break
+                else:
+                    raise ValueError("Producer backlog exceeds enrollment budget")
+        return heads
+
     async def deliver(self):
         # Merge sources into one paced queue; old Core receipts stay authoritative.
         rows = self.store.rows("""

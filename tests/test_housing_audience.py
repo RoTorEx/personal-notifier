@@ -254,3 +254,13 @@ async def test_management_owner_only_and_unsubscription_blocks_old_buttons(pair)
     assert len(pair.feeds["housing"].calls) == before
     await pair.handle(callback(topic, "manage:set:99:0:1:topic", owner=99))
     assert not pair.audience.subscriptions.allowed(99, "housing")
+
+
+async def test_owner_can_reenable_subscription_after_hiding_all_queues(pair):
+    pair.audience.subscriptions.set(42, 42, "housing", False)
+    await pair.handle(Update.model_validate(update(text="/menu")))
+    deck = list(pair.bot.session.messages.values())[-1]
+    assert "Management" in str(deck.reply_markup)
+    assert "Housing" not in str(deck.reply_markup)
+    await pair.handle(callback(deck, "manage:set:42:0:1:user"))
+    assert pair.audience.subscriptions.allowed(42, "housing")

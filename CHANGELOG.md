@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Read producer watermarks before first subscription and resubscription; unavailable sources keep enrollment pending without replaying uncaptured historical events.
+- Keep owner Management reachable when Housing is disabled.
+
 - Add owner-only Management with topic/user subscription views and durable product-topic permissions.
 - Preserve pinned housing users and personal review state; disabling Housing blocks delivery and old review buttons.
 - Keep Market/Home source integration and Vibecoding migration pending.

@@ -14,16 +14,15 @@ identities, producer data, per-person flags and real delivery receipts.
   Telegram for Alex (163) and Ira (164). Recovery belongs to Housing Watch under
   /srv/housing-watch/{runtime,data}/before-areas-0.1.11. Retain until a later
   verified deployment explicitly retires it; reconcile cursors before DB restore.
-- Subscription storage and owner Management are implemented locally. Complete
-  subscription enrollment at the producer watermark, frontend authorization tests
-  and deployment verification before releasing this slice. Current resubscription
-  watermark covers captured notices only, not uncaptured producer backlog.
+- Subscription storage, owner Management and producer-watermark enrollment are
+  implemented and pass 206 tests plus Ruff/mypy. Release, deploy, reconcile the
+  migrated state and exercise deployed Management before marking this slice done.
 - Node Tools checkout has unrelated edits. Preserve them; establish its current
   upstream state before implementing the telemetry/Core integration.
 
 ## Remaining execution order
 
-1. Complete subscription enrollment/watermarks, then release and deploy Notifier.
+1. Release and deploy the verified subscription implementation.
    Owner-only Management has Topics → subscribers and Users → subscriptions.
    Preserve Alex/Ira numeric pins; Ira gets Housing only. Owner gets enabled
    product topics. New access is explicitly owner assigned. Enforce reads,

@@ -31,6 +31,9 @@ class QueueFeed:
             for i in range(3)
         ]
 
+    async def read(self, cursor):
+        return {"version": 1, "events": [], "next_cursor": cursor}
+
     async def queue_request(
         self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added", event_id=None
     ):

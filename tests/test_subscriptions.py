@@ -44,3 +44,50 @@ async def test_resubscribe_skips_captured_backlog_per_source(pair):
     assert 99 not in subscriptions.recipients("housing", "housing", 50)
     assert 99 in subscriptions.recipients("housing", "housing", 51)
     assert 99 in subscriptions.recipients("housing", "another-source", 1)
+
+
+def event(identifier):
+    return {
+        "id": identifier,
+        "type": "housing.queue.summary",
+        "title": "New",
+        "text": "New",
+        "url": "",
+        "priority": 1,
+    }
+
+
+async def test_enrollment_drains_uncaptured_producer_backlog_without_capturing(pair):
+    calls = []
+
+    async def read(cursor):
+        calls.append(cursor)
+        ids = range(cursor + 1, min(cursor + 100, 205) + 1)
+        events = [event(identifier) for identifier in ids]
+        return {"version": 1, "events": events, "next_cursor": events[-1]["id"] if events else cursor}
+
+    pair.feeds["housing"].read = read
+    await pair.handle(start())
+    assert calls == [0, 100, 200]
+    assert pair.store.get("feed_cursor:housing", "0") == "0"
+    assert pair.store.rows("SELECT * FROM feed_notices") == []
+    assert 99 not in pair.audience.recipients(205)
+    assert 99 in pair.audience.recipients(206)
+
+
+async def test_failed_first_enrollment_stays_closed_and_retries(pair):
+    async def failed(cursor):
+        raise OSError("Unavailable")
+
+    pair.feeds["housing"].read = failed
+    await pair.handle(start())
+    assert not pair.audience.subscriptions.allowed(99, "housing")
+    assert pair.store.one("SELECT 1 FROM subscription_pending WHERE user_id=99")
+
+    async def recovered(cursor):
+        return {"version": 1, "events": [], "next_cursor": cursor}
+
+    pair.feeds["housing"].read = recovered
+    await pair.handle(start())
+    assert pair.audience.subscriptions.allowed(99, "housing")
+    assert not pair.store.one("SELECT 1 FROM subscription_pending WHERE user_id=99")

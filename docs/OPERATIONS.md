@@ -91,3 +91,18 @@ for future digests; old digests without identities are safely suppressed rather
 than assigned invented members. Existing notifications/receipts remain unchanged.
 Capture event_type into feed_notices and validate new_total immediately before
 sending. Queue entry resets to Published; UI sorting remains available afterward.
+
+## Subscription rollout
+
+Back up bot.db with the sender stopped before installing the additive product
+subscription migration. Reconcile housing_members, review_screens, guide receipts,
+feed cursors and Telegram delivery receipts unchanged. Initial migration grants
+existing participants Housing only and preserves numeric identities. Market/Home
+permissions are stored but no corresponding sources or menu entries are connected
+in this slice. Management is private-owner-only and remains available with Housing
+disabled. Enrollment/resubscription drains bounded producer reads to establish a
+watermark without advancing capture cursors. Failed reads leave enrollment pending
+or an existing subscription unchanged. Exercise Topics and Users views plus an
+owner disable/reenable cycle against deployed handlers; use real Telegram returned
+markup without claiming a human clicked. Preserve source service state and Core
+identity. Rollback requires stopping the current sender and reconciling receipts.

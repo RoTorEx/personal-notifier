@@ -17,6 +17,8 @@ class Subscriptions:
             CREATE TABLE IF NOT EXISTS product_subscriptions(
                 user_id INTEGER NOT NULL,topic TEXT NOT NULL,enabled INTEGER NOT NULL,
                 PRIMARY KEY(user_id,topic));
+            CREATE TABLE IF NOT EXISTS subscription_pending(
+                user_id INTEGER NOT NULL,topic TEXT NOT NULL,PRIMARY KEY(user_id,topic));
             CREATE TABLE IF NOT EXISTS subscription_watermarks(
                 user_id INTEGER NOT NULL,topic TEXT NOT NULL,source TEXT NOT NULL,event_id INTEGER NOT NULL,
                 PRIMARY KEY(user_id,topic,source));
@@ -37,10 +39,12 @@ class Subscriptions:
     def enroll(self, user_id, label, legacy=False):
         self.store.db.execute("INSERT OR IGNORE INTO product_users VALUES(?,?)", (user_id, label))
         self.store.db.execute(
-            "INSERT OR IGNORE INTO product_subscriptions VALUES(?,?,1)", (user_id, "housing")
+            "INSERT OR IGNORE INTO product_subscriptions VALUES(?,?,?)", (user_id, "housing", int(legacy))
         )
         if not legacy:
-            self._watermarks(user_id, "housing")
+            self.store.db.execute(
+                "INSERT OR IGNORE INTO subscription_pending VALUES(?,?)", (user_id, "housing")
+            )
 
     def allowed(self, user_id, topic):
         row = self.store.one(
@@ -55,7 +59,7 @@ class Subscriptions:
                 (user_id, topic, row["source"], row["id"]),
             )
 
-    def set(self, actor, user_id, topic, enabled):
+    def set(self, actor, user_id, topic, enabled, heads=None):
         if actor != self.owner:
             raise PermissionError("Owner required")
         if (
@@ -67,8 +71,16 @@ class Subscriptions:
         with self.store.db:
             if enabled and not self.allowed(user_id, topic):
                 self._watermarks(user_id, topic)
+                for source, event_id in (heads or {}).items():
+                    self.store.db.execute(
+                        "INSERT OR REPLACE INTO subscription_watermarks VALUES(?,?,?,?)",
+                        (user_id, topic, source, event_id),
+                    )
             self.store.db.execute(
                 "INSERT OR REPLACE INTO product_subscriptions VALUES(?,?,?)", (user_id, topic, int(enabled))
+            )
+            self.store.db.execute(
+                "DELETE FROM subscription_pending WHERE user_id=? AND topic=?", (user_id, topic)
             )
 
     def recipients(self, topic, source, event_id):
