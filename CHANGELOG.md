@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-15
+
 - Use only the canonical Web Watch service and socket paths in deployment templates; remove references to the previous collector identity.
 
 ## [0.4.0] - 2026-11-15
