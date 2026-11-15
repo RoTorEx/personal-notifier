@@ -27,6 +27,7 @@ class Settings:
     bot_username: str = ""
     web_url: str = "https://vibecoding.com"
     housing_usernames: tuple[str, ...] = ()
+    home_socket: Path | None = None
     core_enabled: bool = True
     sources: tuple[FeedSource, ...] = ()
     confirmation_required: bool = False
@@ -67,6 +68,10 @@ class Settings:
                 raise ValueError("queue must be boolean")
             sources.append(FeedSource(name, socket, interval, queue))
         values["sources"] = tuple(sources)
+        if values.get("home_socket") is not None:
+            values["home_socket"] = Path(values["home_socket"]).expanduser()
+            if not values["home_socket"].is_absolute():
+                raise ValueError("home_socket must be an absolute Unix socket path")
         usernames = values.get("housing_usernames", [])
         if not isinstance(usernames, (list, tuple)) or any(
             not isinstance(n, str) or not re.fullmatch(r"[a-zA-Z0-9_]{5,32}", n.lstrip("@"))

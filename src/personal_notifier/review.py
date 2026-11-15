@@ -64,6 +64,10 @@ class ReviewUI:
         rows = [[button("🛠 Vibecoding", "vibecoding")]]
         for source in self.sources:
             rows.append([button("🏠 Housing", f"housing:{source}")])
+        if self.app.settings.home_socket and self.app.audience.subscriptions.allowed(
+            self.recipient.get(), "home.temperature"
+        ):
+            rows.append([button("🌡 Home", "home:temperature")])
         if self.recipient.get() == self.app.settings.allowed_user_id:
             rows.append([button("⚙️ Management", "manage:home")])
         return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -385,7 +389,10 @@ class ReviewUI:
         return sent
 
     async def handle(self, update):
-        if not any(source.queue for source in self.app.settings.sources):
+        if (
+            not any(source.queue for source in self.app.settings.sources)
+            and not self.app.settings.home_socket
+        ):
             return
         callback = update.callback_query
         message = callback.message if callback else update.message
@@ -444,6 +451,35 @@ class ReviewUI:
                     )
                 return
             data = callback.data or ""
+            if data == "home:temperature":
+                if not self.app.settings.home_socket or not self.app.audience.subscriptions.allowed(
+                    self.recipient.get(), "home.temperature"
+                ):
+                    return
+                await self.app.bot.answer_callback_query(callback.id)
+                state = self.app.home.state
+                sample = state.get("sample")
+                text = "🌡 Home\n\nNo fresh measurement available."
+                if sample:
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+
+                    measured = datetime.fromtimestamp(sample["at"] / 1000, ZoneInfo("Europe/Warsaw"))
+                    text = f"🌡 Home\n\n{sample['temperature'] / 1000:g} °C\nMeasured: {measured:%d.%m.%Y %H:%M %Z}\n"
+                    text += "Alarm active" if state.get("active") else "No active alarm"
+                    if not state.get("fresh") or __import__("time").time() * 1000 > sample.get(
+                        "valid_until", sample["at"] + 360000
+                    ):
+                        text += "\nLast known reading · stale"
+                await self.display(
+                    text,
+                    None,
+                    InlineKeyboardMarkup(
+                        inline_keyboard=[[button("⬅️ Back", "home"), button("🏠 Deck", "home")]]
+                    ),
+                    message,
+                )
+                return
             if data.startswith("manage:"):
                 if self.recipient.get() == self.app.settings.allowed_user_id:
                     await self.app.bot.answer_callback_query(callback.id)

@@ -10,6 +10,8 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
     cpus: 0.25
+    # Enable with the existing host Node Tools socket group when Home is configured.
+    group_add: ["${NODE_TOOLS_GID:-986}"]
     environment:
       PERSONAL_NOTIFIER_CONFIG: /config/bot.toml
     volumes:
@@ -17,6 +19,7 @@ services:
       - /srv/personal-notifier/data:/data
       - /srv/remote-vibecoding/data/core/run:/run/vibecoding:ro
       - /srv/housing-watch/run:/run/housing-watch:ro
+      - /run/node-tools-ingest:/run/node-tools:ro
     tmpfs:
       - /tmp:size=16m,mode=1777
     healthcheck:

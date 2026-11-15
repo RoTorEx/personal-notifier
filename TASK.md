@@ -42,72 +42,48 @@ identities, producer data, per-person flags and real delivery receipts.
   It currently contains no implementation changes and may be removed when no
   longer needed. Resolve main integration/release without losing original edits.
 
-## Remaining execution order
+## Accepted architecture and remaining execution order
 
-2. Move Vibecoding outcomes to Node Radar through Node Tools' existing technical
-   pending/send/ack contract. Radar remains Alex-only and retains its sole Node
-   Tools socket. Migrate cursor, pending outcomes and real receipts before
-   disabling Notifier's Core consumer/removing its Vibecoding menu. No Core
-   restart or execution permissions.
-3. Create market-watch via the personal-repository bootstrap skill. One repo/app
-   for astronomy (telescopes plus astronomical equipment) and digital pianos;
-   OLX plus Allegro Lokalnie, Warsaw city, all prices, new/used. Exclude acoustic
-   pianos, ordinary keyboards, wanted ads and rentals. Verify actual Polish
-   categories/terms and native VPS access/pagination. HTTP first; Playwright only
-   when ordinary rendering requires it and a VPS preflight succeeds. Blocking
-   is an error, never empty success. Both connectors are required for this slice.
-4. Add source/topic metadata and capabilities to Notifier feeds; use topic-scoped
-   event membership, queue queries and subscriptions. Market → Astronomy/Digital
-   pianos → Queue/Favorites. Reuse actor flags, photos/public contacts, sort,
-   carousel and Back/Deck. Quiet initial inventory, one new-findings summary per
-   topic, no queue reminders. Scan every 600s; feed capture every 900s, wall-clock
-   boundaries without offsets. New IDs only; pure updates do not notify.
-5. Implement Home directly in Personal Notifier, as the owner's later correction:
-   do not create a home-watch repository, service or new telemetry collector.
-   Read the existing Node Tools climate API's latest raw indoor measurement,
-   using its read-only socket and a separate async loop. Do not evaluate CPU
-   temperature, chart averages or repeatedly dated last-valid fallback readings.
-   Poll every 600 seconds normally; switch to 60 seconds when a distinct fresh
-   temperature is below the previous accepted temperature, or a cold episode
-   remains active. Return to 600 seconds after two consecutive distinct fresh
-   readings >=15.5 Celsius with no decrease; never count repeated polls as samples.
-   The normal poll interval permits up to ten minutes to notice the first drop
-   and can miss dips between observations. Faster polling cannot create sensor
-   samples; collection currently occurs about every two minutes.
-   Below 15 opens a cold episode; further thresholds are 14.5, 14.0, 13.5 and
-   downward by 0.5 Celsius. Exact 15 does not open; later thresholds trigger at or
-   below. Emit one current alert for a multi-threshold jump and retain notified
-   thresholds until rearmed. Additionally send a recurring Temperature alarm
-   every 300 seconds while the latest fresh indoor reading is strictly below 15,
-   even without a new 0.5-degree crossing. The first cold alarm establishes the
-   five-minute reminder cadence; intermediate threshold alarms do not postpone
-   it. Coalesce coincident threshold and recurring alarms into one message.
-   Persist the reminder schedule and last actually reported temperature alongside
-   episode state. Say temperature decreased only when lower than the previously
-   reported value; otherwise say it remains below threshold, showing current
-   temperature and measurement time. Repeats stop at >=15 or when the latest
-   reading is unavailable/stale/untrusted. After an outage reconcile fresh state
-   and send at most one currently due alarm, not missed historical reminders.
-   These Home alarms are available around the clock to home.temperature
-   subscribers and do not reintroduce Housing/Market queue reminders.
-   Rearm after two distinct consecutive fresh readings
-   >=15.5; recovery is quiet. Persist accepted measurement identity, trend,
-   episode and product events/receipts in Notifier's own database, atomically
-   where required; restart preserves the active fast-poll state and episode.
-   Failed, stale, duplicate, out-of-order or untrusted readings never establish
-   a transition or become zero degrees. Do not infer recovery from missing data.
-   Startup/reconnect evaluates the latest fresh state without historical spam;
-   superseded unsent cold alerts must not become misleading current warnings.
-   Home UI shows measured time, freshness, temperature and active threshold.
-   Subscription enforcement is home.temperature; Ira remains Housing-only until
-   explicitly assigned. Sensor/collector failure belongs to Radar's existing
-   technical policy; do not reenable disabled Raspberry policies automatically.
-6. Independent versioned releases/deployments per verified slice. Existing bots
-   keep their deployment forms; Market Watch uses a separate native systemd unit, config/data/user.
-   Home polling uses Notifier’s independent async loop and existing database. No broker/shared writable DB/shared subscription service.
-   Safe logs cover polls, scans, event IDs, subscription changes, retries and
-   delivery receipts without secrets/contact/body content. Read back installed
-   versions and use real deployed UI/API paths. Preserve rollback points.
+The owner superseded the separate Market Watch/Home Watch design:
+- The former housing-watch repo is renamed RoTorEx/web-watch, with its Git history
+  and private visibility preserved. Local path is projects/home/web-watch. It owns
+  housing and listing modules, one observations/review database, shared source
+  connectors and the private interactive API. The existing native service/state
+  identity remains compatible during cutover; no queue or event reset.
+- Personal Notifier remains an independent repo/application/database. Connections
+  are notification-only (Home temperature) or notifications plus interactive object
+  collections (Housing/Market). Product topics determine subscriptions separately
+  from connection capabilities. Node Radar remains the technical Alex-only bot.
+- No new project/context/deployment repository or separate Home service. Both
+  product repos remain in home. Do not create market-watch or home-watch.
+
+1. Release/deploy optional Home temperature integration inside Notifier. The
+   implementation passes 213 checks at the last checkpoint; refresh checks after
+   final edits. Verify socket group/mount permissions, live source freshness,
+   numeric recipients, subscription isolation, installed artifact, health and
+   Home status UI without generating synthetic production cold alarms.
+2. Complete Web Watch's listing module for OLX and Allegro Lokalnie, Warsaw city,
+   all prices, new/used: astronomy (telescopes and equipment) and digital pianos.
+   Exclude rental/wanted offers, ordinary keyboards and acoustic pianos. Verified
+   platform routes: Allegro telescope category 124894 and digital pianos 122803;
+   OLX telescope offers use category 100, digital pianos 4582. Verify accessory
+   categories before enabling them. Native httpx preflight works on the VPS;
+   urllib gets 403 and is not a substitute source-access check. Allegro ItemList
+   JSON-LD works on native VPS. Preserve source metadata; never fabricate dates.
+   Shared per-topic queue/event API and identical Notifier UI for Housing/Market:
+   Queue/Favorites, photo/public contacts, Viewed, undoable unfavorite, sort,
+   arrows, Back/Deck. Quiet initial baseline; new-ID digest summaries only.
+   Scan every 600s, capture every 900s aligned, no old-queue reminders. Preserve
+   the owner's queue-clear cutoff and all existing flags. Keep module source
+   errors independent and validate cross-topic read/write boundaries.
+3. Move Vibecoding outcomes to Radar through Node Tools' technical pending/send/ack
+   contract. Preserve cursor, pending work and real receipts through handover;
+   remove Notifier's Core consumer/menu only after verified replacement. No Core
+   restart or execution access. Node Tools original checkout has unrelated edits;
+   its safe pull is unresolved. Use the retained clean worktree for isolated work,
+   but reconcile release integration without overwriting the original changes.
+4. Independently release/deploy verified slices, with backups before migrations,
+   safe activity logs, exact installed revisions and consumer-level verification.
 
 ## Acceptance requirements
 

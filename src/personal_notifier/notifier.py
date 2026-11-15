@@ -120,6 +120,9 @@ class Notifier:
         from personal_notifier.review import ReviewUI
 
         self.review = ReviewUI(self)
+        from personal_notifier.home import Home
+
+        self.home = Home(self) if settings.home_socket else None
         instance_file = Path("/tmp/personal-notifier-instance")
         self.instance = instance_file.read_text().strip() if instance_file.exists() else uuid.uuid4().hex
 
@@ -301,6 +304,9 @@ class Notifier:
         """Read producer watermarks without capturing or advancing delivery cursors."""
         from personal_notifier.feeds import validate_page
 
+        if topic == "home.temperature":
+            row = self.store.one("SELECT COALESCE(MAX(id),0) AS id FROM home_notices") if self.home else None
+            return {"home": row["id"]} if row else {}
         heads = {}
         async with asyncio.timeout(10):
             for source in self.settings.sources:
@@ -482,6 +488,26 @@ class Notifier:
             if not source.queue:
                 await self.pause(source.poll_seconds)
 
+    async def home_loop(self):
+        assert self.home is not None
+        from personal_notifier.home import measurement
+
+        while not self.stop.is_set():
+            now = time.time()
+            try:
+                sample = measurement(await self.home.read(), time.time())
+            except Exception as error:
+                log.warning("home.read_failed error=%s", type(error).__name__)
+                sample = None
+            state = self.home.capture(sample, time.time())
+            try:
+                await self.home.deliver(sample, time.time())
+            except Exception as error:
+                log.warning("home.delivery_deferred error=%s", type(error).__name__)
+            interval = 60 if state.get("fast") else 600
+            log.info("home.polled fresh=%s fast=%s", state.get("fresh"), state.get("fast", False))
+            await self.pause(max(1, interval - (time.time() - now)))
+
     async def notifications(self):
         # Delivery is independent of slow or unavailable source requests.
         while not self.stop.is_set():
@@ -549,8 +575,10 @@ class Notifier:
                             "housing.guide_failed recipient=%s error=%s", recipient, type(error).__name__
                         )
             tasks = [asyncio.create_task(self.notifications())]
-            if queue_enabled:
+            if queue_enabled or self.home:
                 tasks.append(asyncio.create_task(self.updates_loop()))
+            if self.home:
+                tasks.append(asyncio.create_task(self.home_loop()))
             if self.settings.core_enabled:
                 tasks.append(asyncio.create_task(self.core_loop()))
             tasks.extend(asyncio.create_task(self.feed_loop(source)) for source in self.settings.sources)
@@ -561,6 +589,8 @@ class Notifier:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
         finally:
+            if self.home:
+                await self.home.close()
             await self.engine.close()
             for client in self.feeds.values():
                 await client.close()

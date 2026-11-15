@@ -137,8 +137,8 @@ Never log bot tokens, phone numbers, listing descriptions or incoming message te
 
 Personal Notifier owns product_users, product_subscriptions and per-source
 subscription_watermarks. Stable topics are housing, market.astronomy,
-market.digital_pianos and home.temperature. Only Housing is currently connected;
-Market/Home integrations and the Vibecoding-to-Radar migration remain pending.
+market.digital_pianos and home.temperature. Housing and optional Home climate are connected; Market integration and the
+Vibecoding-to-Radar migration remain pending.
 Existing pinned members migrate to Housing only. The owner starts subscribed to
 all four topics; startup never overrides later subscription changes.
 Management presents Topics → subscribers and Users → subscriptions, as two views
@@ -153,3 +153,34 @@ request retries it. Reads have a ten-second overall budget and at most 100 pages
 per producer; failure leaves the subscription unchanged. Disconnected future
 topics have no producers yet. Management remains accessible to the owner even
 when every review subscription is disabled.
+
+## Home: notification-only indoor climate
+
+Home is an optional connection inside Notifier, enabled by home_socket. Node Tools
+owns the sensor collector, raw accepted readings and freshness policy. Read its
+existing GET /api/v1/climate through the private read socket; never read its DB,
+chart means, CPU temperature or repeatedly dated last-valid fallbacks as current.
+The source's latest attempt must be successful, synchronized and fresh by both
+source/receipt time. Missing/stale data is unavailable, never zero or recovery.
+
+Poll every 600 seconds normally. A new declining temperature or active cold
+incident switches to 60 seconds. Two distinct non-declining readings >=15.5 Celsius
+restore normal polling and rearm the incident. A duplicate never counts twice.
+The first cold signal is strictly below 15; subsequent 0.5-degree boundaries
+(14.5,14,13.5,...) include equality and notify once per incident. A large jump
+produces one current alarm. Additionally send Temperature alarm every 300 seconds
+while fresh temperature is below 15, regardless of movement. The first cold alarm
+starts this cadence; intervening threshold crossings do not postpone it, and
+coincident triggers coalesce. >=15 stops repeats; recovery is quiet. All alarms
+are available around the clock only to home.temperature subscribers.
+
+State, cadence and an outbox survive restart. Reconcile current fresh temperature
+rather than replay missed timers; stale/warm observations supersede pending cold
+warnings. Retry independently per recipient and retain actual sent readings in
+receipts. Say decreased only against that recipient's last reported temperature;
+otherwise say remains below threshold. Home has no Viewed/Favorites/queue actions.
+Its screen shows temperature, source measurement time, freshness and episode state.
+Only the owner is subscribed initially; housing members retain their existing
+scope. Technical collection/availability policy stays with Node Tools/Radar.
+Normal polling may detect the first drop up to ten minutes late and miss dips
+between observations. The sensor's own cadence bounds new measurement frequency.
