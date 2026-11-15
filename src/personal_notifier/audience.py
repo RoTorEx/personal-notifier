@@ -68,6 +68,6 @@ class HousingAudience:
         return [
             recipient
             for recipient in [self.settings.allowed_user_id]
-            + [r["user_id"] for r in self.members() if event_id > r["joined_event_id"]]
+            + [r["user_id"] for r in self.members() if topic != "housing" or event_id > r["joined_event_id"]]
             if recipient in eligible
         ]

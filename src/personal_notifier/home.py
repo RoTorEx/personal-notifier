@@ -123,10 +123,9 @@ class Home:
             )
         async with self.http.get("http://node-tools/api/v1/climate") as response:
             response.raise_for_status()
-            raw = await response.content.read(1_000_001)
-            if len(raw) > 1_000_000:
-                raise ValueError("Climate response exceeds limit")
-            return json.loads(raw)
+            from personal_notifier.feeds import bounded_json
+
+            return await bounded_json(response, 1_000_000)
 
     def capture(self, sample, now):
         state, alert = advance(self.state, sample, now)

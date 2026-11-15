@@ -264,3 +264,37 @@ async def test_owner_can_reenable_subscription_after_hiding_all_queues(pair):
     assert "Housing" not in str(deck.reply_markup)
     await pair.handle(callback(deck, "manage:set:42:0:1:user"))
     assert pair.audience.subscriptions.allowed(42, "housing")
+
+
+async def test_market_uses_same_collection_ui_and_scopes_as_housing(pair):
+    from dataclasses import replace
+
+    from personal_notifier.config import FeedSource
+
+    pair.settings = replace(
+        pair.settings,
+        sources=pair.settings.sources
+        + (
+            FeedSource(
+                "astronomy", pair.settings.runtime_dir / "api.sock", queue=True, topic="market.astronomy"
+            ),
+        ),
+    )
+    pair.feeds["astronomy"] = QueueFeed()
+    await pair.handle(Update.model_validate(update(text="/menu")))
+    deck = list(pair.bot.session.messages.values())[-1]
+    assert "Market" in str(deck.reply_markup)
+    await pair.handle(callback(deck, "market"))
+    menu = list(pair.bot.session.messages.values())[-1]
+    await pair.handle(callback(menu, "housing:astronomy"))
+    collection = list(pair.bot.session.messages.values())[-1]
+    assert "Astronomy" in collection.text
+    assert "Favorites" in str(collection.reply_markup)
+    await pair.handle(callback(collection, "browse:astronomy:queue"))
+    card = list(pair.bot.session.messages.values())[-1]
+    assert "Viewed" in str(card.reply_markup)
+    assert "Favorite" in str(card.reply_markup)
+    await pair.handle(start())
+    before = len(pair.feeds["astronomy"].calls)
+    await pair.handle(callback(card, "browse:astronomy:queue", owner=99))
+    assert len(pair.feeds["astronomy"].calls) == before

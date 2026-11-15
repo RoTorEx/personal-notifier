@@ -310,7 +310,7 @@ class Notifier:
         heads = {}
         async with asyncio.timeout(10):
             for source in self.settings.sources:
-                if not source.queue or topic != "housing":
+                if not source.queue or source.topic != topic:
                     continue
                 cursor = int(self.store.get("feed_cursor:" + source.name, "0"))
                 for _ in range(100):
@@ -333,7 +333,7 @@ class Notifier:
             FROM feed_notices WHERE telegram_id IS NULL AND suppressed=0
             ORDER BY priority DESC,created,event_id LIMIT 10
         """)
-        queue_sources = {source.name for source in self.settings.sources if source.queue}
+        queue_sources = {source.name: source.topic for source in self.settings.sources if source.queue}
         for row in rows:
             if row["source"] in queue_sources:
                 if row["event_type"].endswith(".queue.reminder") or row["body"].startswith(
@@ -348,7 +348,9 @@ class Notifier:
                     continue
                 pending = False
                 owner_message = None
-                for recipient in self.audience.recipients(row["event_id"], row["source"]):
+                for recipient in self.audience.recipients(
+                    row["event_id"], row["source"], queue_sources[row["source"]]
+                ):
                     receipt = self.store.one(
                         "SELECT telegram_id FROM housing_receipts WHERE source=? AND event_id=? AND recipient=?",
                         (row["source"], row["event_id"], recipient),

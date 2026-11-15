@@ -14,6 +14,7 @@ class FeedSource:
     socket: Path
     poll_seconds: float = 15
     queue: bool = False
+    topic: str = "housing"
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,10 @@ class Settings:
             queue = source.get("queue", False)
             if type(queue) is not bool:
                 raise ValueError("queue must be boolean")
-            sources.append(FeedSource(name, socket, interval, queue))
+            topic = source.get("topic", "housing")
+            if topic not in ("housing", "market.astronomy", "market.digital_pianos"):
+                raise ValueError("Unknown collection topic")
+            sources.append(FeedSource(name, socket, interval, queue, topic))
         values["sources"] = tuple(sources)
         if values.get("home_socket") is not None:
             values["home_socket"] = Path(values["home_socket"]).expanduser()

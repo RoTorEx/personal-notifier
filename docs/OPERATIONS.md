@@ -1,128 +1,642 @@
-# Operations
+"""Owner-only browsing of source-owned queues; no access to execution controls."""
 
-Production is an independent Compose project in /srv/personal-notifier/runtime.
-Configuration/token are in /srv/personal-notifier/config and bot.db in its data
-folder. Mount only the existing Core socket directory and Housing Watch socket
-directory read-only. The deployment UID/GID is the existing alex identity, 1002.
+import asyncio
+import json
+import logging
+import uuid
+from contextvars import ContextVar
+from urllib.parse import urlsplit
 
-For first cutover, build and test the released image before stopping the old
-remote-vibecoding bot service. Save the old installed Compose/ops files, stop only
-that old bot, and take a consistent SQLite backup into the new data directory.
-Reconcile table counts and known delivery receipts. Copy its token without printing
-it; preserve the verified username and numeric recipient. Start the new service,
-read back version/capabilities/health, and check both source success timestamps.
-Core container ID and active native sessions must remain unchanged. Never run two
-senders against different copies of the same queue. Keep old state and image for
-rollback, but remove the old service from normal Core startup.
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import (
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    Message,
+)
 
-The active bot display name is Personal Notifier. Telegram usernames are separate
-identities and may require BotFather to rename; do not invent a new handle or token.
-The existing pinned handle and chat are retained when only the display name changes.
 
-Updates build the reviewed Git revision as personal-notifier:<version>, then run
-`docker compose -f /srv/personal-notifier/runtime/compose.yaml up -d` with the
-matching VERSION. This replaces only Personal Notifier. It must not restart Core,
-Housing Watch or Node Radar. A rollback stops the current sender first and restores
-one known notifier/state combination; never replay pending queues blindly after
-ambiguous Telegram acceptance. Verify actual Telegram history before repair.
+def button(text, data):
+    return InlineKeyboardButton(text=text, callback_data=data)
 
-make release is interactive; make release-push publishes the reviewed branch/tag.
-Source publication does not itself deploy. For 0.1.32 and later, housing opts
-into queue=true in its source block. The bot long-polls only owner deck/review
-interactions; command scope is the pinned private owner's chat. Verify Home deck,
-Vibecoding alert, queue/favorites, Back/Deck, sender/chat rejection and the producer
-review API without enabling any Core mutation path. Preserve session IDs, source cursors,
-known Telegram message IDs and token files outside Git. No secrets in command text.
 
-## Verified 13 November 2026 cutover
+log = logging.getLogger(__name__)
 
-Personal Notifier 0.1.31 runs in its own healthy Docker container. The former
-remote-vibecoding bot container was removed only after health and unchanged Core
-identity were verified. Telegram display name/description were updated and its
-advertised command list is empty. The existing Telegram handle/token/recipient are
-retained; a handle change is a separate BotFather operation, not setMyName.
 
-Housing Watch uses native systemd on the same VPS because that exact source client
-worked natively while the container source preflight returned 403. Both producer
-socket directories remain read-only mounts in the notifier. Source success keys
-and feed_cursor:housing prove independent capture; feed_notices.telegram_id records
-Telegram acceptance. These receipts do not prove the operator has read a message.
+class ReviewUI:
+    def __init__(self, app):
+        self.app = app
+        self.lock = asyncio.Lock()
+        self.recipient = ContextVar("review_recipient", default=app.settings.allowed_user_id)
+        self.app.store.db.execute("""CREATE TABLE IF NOT EXISTS review_screens(
+            token TEXT PRIMARY KEY,source TEXT NOT NULL,mode TEXT NOT NULL,
+            offset INTEGER NOT NULL,item TEXT NOT NULL,message_id INTEGER NOT NULL,
+            parent TEXT NOT NULL DEFAULT 'housing',chat_id INTEGER NOT NULL,
+            sort TEXT NOT NULL DEFAULT 'added',UNIQUE(chat_id,message_id))""")
+        if "sort" not in {row[1] for row in app.store.db.execute("PRAGMA table_info(review_screens)")}:
+            app.store.db.execute("ALTER TABLE review_screens ADD COLUMN sort TEXT NOT NULL DEFAULT 'added'")
+        if not app.store.get("review_screens_migrated"):
+            if app.store.one("SELECT name FROM sqlite_master WHERE name='review_views'"):
+                self.app.store.db.execute(
+                    "INSERT OR IGNORE INTO review_screens(token,source,mode,offset,item,message_id,parent,chat_id) SELECT token,source,mode,offset,item,message_id,parent,? FROM review_views",
+                    (app.settings.allowed_user_id,),
+                )
+            app.store.set("review_screens_migrated", "1")
+        self.app.store.db.commit()
 
-After a root-run SQLite backup or verification, ensure every bot.db, bot.db-wal and
-bot.db-shm file has the service UID/GID before starting the unprivileged notifier.
-Checking only the main file left root-owned WAL/SHM files and prevented startup in
-the first cutover attempt. No files were deleted to recover. Old state/image and
-installed-operator backups remain under the prior room and config/migration.
-A rollback after new sends must reconcile the current queue/receipts before any
-old process is reactivated; restoring an older queue blindly can resend messages.
+    async def queue_request(self, source, mode="queue", offset=0, **kwargs):
+        if source not in self.sources:
+            raise PermissionError("Subscription required")
+        if self.recipient.get() != self.app.settings.allowed_user_id:
+            kwargs["actor"] = str(self.recipient.get())
+        return await self.app.feeds[source].queue_request(mode, offset, **kwargs)
 
-## Housing participants and logs
+    @property
+    def sources(self):
+        return {
+            source.name: source
+            for source in self.app.settings.sources
+            if source.queue and self.app.audience.subscriptions.allowed(self.recipient.get(), source.topic)
+        }
 
-Configure housing_usernames outside Git. Each invited user must privately send
-/start after the supporting release is installed; Bot API cannot resolve arbitrary
-private usernames or initiate a conversation before Start. Read back housing_members
-to verify numeric enrollment, then housing_receipts and housing_guide:v1:<id> for
-Telegram acceptance. Never report a recipient as enrolled from configuration alone.
-The owner retains Vibecoding notices; participants receive housing only.
+    def menu(self):
+        rows = [[button("🛠 Vibecoding", "vibecoding")]]
+        for source, config in self.sources.items():
+            if config.topic == "housing":
+                rows.append([button("🏠 Housing", f"housing:{source}")])
+        if any(config.topic.startswith("market.") for config in self.sources.values()):
+            rows.append([button("🛍 Market", "market")])
+        if self.app.settings.home_socket and self.app.audience.subscriptions.allowed(
+            self.recipient.get(), "home.temperature"
+        ):
+            rows.append([button("🌡 Home", "home:temperature")])
+        if self.recipient.get() == self.app.settings.allowed_user_id:
+            rows.append([button("⚙️ Management", "manage:home")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
 
-The producer owns actor-scoped review_actors. Deploy both sides before enabling a
-participant; an older producer ignores unknown actor queries. Reconcile source
-eligibility using the updated search config while preserving existing flags.
-Personal Notifier preserves legacy review_views and migrates owner screens into
-chat-scoped review_screens. Keep backups before either additive migration.
-Read activity through docker logs personal-notifier and journalctl -u housing-watch;
-existing journald retention applies. No extra file log or unbounded duplicate sink.
+    async def management(self, data, message):
+        if self.recipient.get() != self.app.settings.allowed_user_id:
+            return
+        from personal_notifier.subscriptions import TOPICS
 
-Queue reminders are disabled for all hours and all housing recipients. Ignore
-legacy reminder events during capture and mark pending reminders suppressed=1
-without inventing telegram_id values. Producer and guest reminder timers are
-retired. Keep old reminder records/clock keys as history; do not replay or delete
-review state. A once-only requested guide is distinct from automatic reminders.
+        parts = data.split(":")
+        topics = list(TOPICS)
+        users = self.app.store.rows("SELECT * FROM product_users ORDER BY user_id")
+        rows = []
+        title = "⚙️ Management"
+        if parts == ["manage", "home"]:
+            rows = [[button("🔔 Topics", "manage:topics"), button("👥 Users", "manage:users")]]
+        elif parts == ["manage", "topics"]:
+            rows = [[button(label, f"manage:topic:{index}")] for index, label in enumerate(TOPICS.values())]
+        elif parts == ["manage", "users"]:
+            rows = [[button(user["label"], f"manage:user:{user['user_id']}")] for user in users]
+        elif len(parts) == 3 and parts[1] in ("topic", "user"):
+            if parts[1] == "topic":
+                index = int(parts[2])
+                if not 0 <= index < len(topics):
+                    return
+                title = TOPICS[topics[index]]
+                rows = [
+                    [
+                        button(
+                            (
+                                "✅ "
+                                if self.app.audience.subscriptions.allowed(user["user_id"], topics[index])
+                                else "⬜ "
+                            )
+                            + user["label"],
+                            f"manage:set:{user['user_id']}:{index}:{int(not self.app.audience.subscriptions.allowed(user['user_id'], topics[index]))}:topic",
+                        )
+                    ]
+                    for user in users
+                ]
+            else:
+                user_id = int(parts[2])
+                if not any(user["user_id"] == user_id for user in users):
+                    return
+                title = "👤 User " + str(user_id)
+                rows = [
+                    [
+                        button(
+                            ("✅ " if self.app.audience.subscriptions.allowed(user_id, topic) else "⬜ ")
+                            + label,
+                            f"manage:set:{user_id}:{index}:{int(not self.app.audience.subscriptions.allowed(user_id, topic))}:user",
+                        )
+                    ]
+                    for index, (topic, label) in enumerate(TOPICS.items())
+                ]
+        elif len(parts) == 6 and parts[1] == "set":
+            user_id, index, enabled = map(int, parts[2:5])
+            if not 0 <= index < len(topics) or enabled not in (0, 1) or parts[5] not in ("topic", "user"):
+                return
+            heads = None
+            if enabled and not self.app.audience.subscriptions.allowed(user_id, topics[index]):
+                try:
+                    heads = await self.app.subscription_heads(topics[index])
+                except Exception as error:
+                    log.warning("subscription.source_unavailable error=%s", type(error).__name__)
+                    await self.display(
+                        "Source unavailable. Subscription unchanged. Please retry.",
+                        None,
+                        self.menu(),
+                        message,
+                    )
+                    return
+            self.app.audience.subscriptions.set(
+                self.recipient.get(), user_id, topics[index], bool(enabled), heads=heads
+            )
+            log.info(
+                "subscription.changed actor=%s recipient=%s topic=%s enabled=%s",
+                self.recipient.get(),
+                user_id,
+                topics[index],
+                enabled,
+            )
+            return await self.management(
+                f"manage:{parts[5]}:{index if parts[5] == 'topic' else user_id}", message
+            )
+        else:
+            return
+        rows.append(
+            [
+                button("⬅️ Back", "manage:home" if parts != ["manage", "home"] else "home"),
+                button("🏠 Deck", "home"),
+            ]
+        )
+        await self.display(title, None, InlineKeyboardMarkup(inline_keyboard=rows), message)
 
-Queue counts in historical producer events can differ from current Viewed state.
-The sender reads the source queue before every count-bearing notification for both
-the owner and participants. housing_skips records per-recipient empty-queue skips
-without synthetic message IDs; housing_receipts retains real Telegram acceptances.
-The saved wire sort key added now means platform publication and displays Published.
+    async def summary(self, source, text, recipient=None, event_id=None, new_listing=None):
+        if text.startswith(("🏠 Housing reminder", "Housing reminder")):
+            return None
+        import re
 
-New-alert correctness requires producer queue_event_items and GET /queue?event_id.
-Deploy the supporting producer before enabling this consumer. Membership is stored
-for future digests; old digests without identities are safely suppressed rather
-than assigned invented members. Existing notifications/receipts remain unchanged.
-Capture event_type into feed_notices and validate new_total immediately before
-sending. Queue entry resets to Published; UI sorting remains available afterward.
+        # Producer event text is a historical scan snapshot, for either recipient.
+        # Read the same personal unviewed queue used by the carousel at delivery.
+        if new_listing or re.search(r"\d+ (?:in queue|waiting in your queue)", text):
+            target = recipient or self.app.settings.allowed_user_id
+            if not self.app.audience.subscriptions.allowed(
+                target, next(config.topic for config in self.app.settings.sources if config.name == source)
+            ):
+                return None
+            kwargs = {"actor": str(target)} if target != self.app.settings.allowed_user_id else {}
+            is_new = new_listing if new_listing is not None else re.search(r"\d+ new ·", text) is not None
+            if is_new:
+                if event_id is None:
+                    return None
+                kwargs["event_id"] = event_id
+            page = await self.app.feeds[source].queue_request(**kwargs)
+            if not page["total"]:
+                return None
+            if is_new:
+                fresh = page.get("new_total", 0)
+                if not fresh:
+                    return None
+                text = re.sub(r"\d+ new ·", f"{fresh} new ·", text)
+            text = re.sub(
+                r"\d+ (in queue|waiting in your queue)", lambda match: f"{page['total']} {match[1]}", text
+            )
+        async with self.app.send_lock:
+            return await self.app.bot.send_message(
+                recipient or self.app.settings.allowed_user_id,
+                text,
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[button("View queue", f"browse:{source}:queue")]]
+                ),
+            )
 
-## Subscription rollout
+    async def home(self, message=None):
+        sent = await self.display(
+            "Personal Notifier · Home deck\n\nChoose an operation.", None, self.menu(), message
+        )
+        if message:
+            with self.app.store.db:
+                self.app.store.db.execute(
+                    "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                    (message.message_id, self.recipient.get()),
+                )
+        return sent
 
-Back up bot.db with the sender stopped before installing the additive product
-subscription migration. Reconcile housing_members, review_screens, guide receipts,
-feed cursors and Telegram delivery receipts unchanged. Initial migration grants
-existing participants Housing only and preserves numeric identities. Market/Home
-permissions are stored but no corresponding sources or menu entries are connected
-in this slice. Management is private-owner-only and remains available with Housing
-disabled. Enrollment/resubscription drains bounded producer reads to establish a
-watermark without advancing capture cursors. Failed reads leave enrollment pending
-or an existing subscription unchanged. Exercise Topics and Users views plus an
-owner disable/reenable cycle against deployed handlers; use real Telegram returned
-markup without claiming a human clicked. Preserve source service state and Core
-identity. Rollback requires stopping the current sender and reconciling receipts.
+    async def market(self, message=None):
+        from personal_notifier.subscriptions import TOPICS
 
-### Verified 0.2.0 subscription rollout
+        rows = [
+            [button(TOPICS[config.topic], f"housing:{name}")]
+            for name, config in self.sources.items()
+            if config.topic.startswith("market.")
+        ]
+        rows.append([button("⬅️ Back", "home"), button("🏠 Deck", "home")])
+        return await self.display(
+            "🛍 Market\n\nChoose a collection.", None, InlineKeyboardMarkup(inline_keyboard=rows), message
+        )
 
-Published/deployed revision 0c3d6ef1a3c605422a293717cfd3e51381a1963c passed
-206 tests, Ruff, mypy and both GitHub checks. The installed image is
-personal-notifier:0.2.0. Direct deployed handler/API verification exercised
-Management, Topics, Housing subscribers, Users and Ira's subscription view,
-returning to the owner deck at Telegram message 167. Real numeric identity,
-legacy member bindings, delivery/guide receipts and Ira's Housing-only scope
-were verified. These observations do not establish physical client interaction.
-The source event watermark read was 134 without advancing capture cursors.
+    async def housing(self, source, message=None):
+        from personal_notifier.subscriptions import TOPICS
 
-Run full-handler verification in a separately bounded ephemeral container,
-without GetUpdates, rather than importing a second application into the 256 MiB
-production bot container. The latter caused memory pressure during this rollout;
-its verification process was terminated and production health recovered without
-changing resource limits. The isolated verification succeeded and was removed.
-Core identity/start time and Housing Watch service remained unchanged by the
-Notifier rollout. The separately requested one-off queue clear subsequently
-restarted Housing Watch and the notifier only; no Core restart occurred.
+        config = self.sources[source]
+        sent = await self.display(
+            "<b>" + TOPICS[config.topic] + "</b>\n\nChoose a collection.",
+            None,
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        button("📋 Queue", f"browse:{source}:queue"),
+                        button("⭐ Favorites", f"browse:{source}:favorites"),
+                    ],
+                    [
+                        button("⬅️ Back", "market" if config.topic.startswith("market.") else "home"),
+                        button("🏠 Deck", "home"),
+                    ],
+                ]
+            ),
+            message,
+        )
+        if message:
+            with self.app.store.db:
+                self.app.store.db.execute(
+                    "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                    (message.message_id, self.recipient.get()),
+                )
+        return sent
+
+    async def display(self, html, photo, markup, message=None):
+        bot = self.app.bot
+        owner = self.recipient.get()
+        async with self.app.send_lock:
+            sent = None
+            if photo:
+                try:
+                    if message:
+                        sent = await bot.edit_message_media(
+                            chat_id=owner,
+                            message_id=message.message_id,
+                            media=InputMediaPhoto(
+                                media=photo, caption=html, parse_mode="HTML", show_caption_above_media=False
+                            ),
+                            reply_markup=markup,
+                        )
+                    else:
+                        sent = await bot.send_photo(
+                            owner,
+                            photo,
+                            caption=html,
+                            parse_mode="HTML",
+                            show_caption_above_media=False,
+                            reply_markup=markup,
+                        )
+                except TelegramBadRequest as error:
+                    if "message is not modified" in str(error).lower():
+                        sent = message
+                    # Explicitly rejected media falls back to a genuine text screen.
+                    # Ambiguous network failures propagate rather than duplicate sends.
+            if sent is None:
+                if message and not message.photo:
+                    try:
+                        sent = await bot.edit_message_text(
+                            html,
+                            chat_id=owner,
+                            message_id=message.message_id,
+                            parse_mode="HTML",
+                            reply_markup=markup,
+                            disable_web_page_preview=True,
+                        )
+                    except TelegramBadRequest as error:
+                        if "message is not modified" not in str(error).lower():
+                            raise
+                        sent = message
+                else:
+                    sent = await bot.send_message(
+                        owner,
+                        html,
+                        parse_mode="HTML",
+                        reply_markup=markup,
+                        disable_web_page_preview=True,
+                    )
+                    if message:
+                        # Telegram cannot remove photo media through an edit. Replace
+                        # only that transition; never insert a fabricated menu image.
+                        await bot.delete_message(owner, message.message_id)
+            if not isinstance(sent, Message):
+                raise ValueError("Missing Telegram screen identity")
+            if not sent.reply_markup or not sent.reply_markup.inline_keyboard:
+                repaired = await bot.edit_message_reply_markup(
+                    chat_id=owner, message_id=sent.message_id, reply_markup=markup
+                )
+                if not isinstance(repaired, Message) or not repaired.reply_markup:
+                    raise ValueError("Telegram did not retain the screen keyboard")
+                sent = repaired
+            return sent
+
+    async def browse(self, source, mode, offset=0, message=None, parent="housing", page=None, sort=None):
+        sort = sort or self.app.store.get(f"housing_sort:{self.recipient.get()}:{source}:{mode}", "added")
+        page = page if page is not None else await self.queue_request(source, mode, offset, sort=sort)
+        item = page["item"]
+        token = uuid.uuid4().hex[:16]
+        rows = []
+        photo = None
+        if item:
+            card = item["presentation"]
+            html = card["html"]
+            photo = card.get("photo_url")
+            rows.append(
+                [
+                    button("↩ Unview" if item["viewed"] else "✓ Viewed", f"view:{token}:viewed"),
+                    button("★ Favorite" if item["favorite"] else "☆ Favorite", f"view:{token}:favorite"),
+                ]
+            )
+            host = urlsplit(item["url"]).hostname or "listing"
+            platform = (
+                "OLX"
+                if host.endswith("olx.pl")
+                else "Otodom"
+                if host.endswith("otodom.pl")
+                else "Allegro Lokalnie"
+                if host.endswith("allegrolokalnie.pl")
+                else host
+            )
+            rows[0].append(InlineKeyboardButton(text=platform, url=item["url"]))
+            if card.get("copy_text"):
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            text="📋 Copy phone", copy_text=CopyTextButton(text=card["copy_text"])
+                        )
+                    ]
+                )
+        else:
+            html = (
+                "No favorites yet." if mode == "favorites" else "No unviewed listings. You're all caught up."
+            )
+        label = "Favorites" if mode == "favorites" else "Queue"
+        position = page["offset"] + 1 if item else 0
+        html += f"\n\n──────────\n{label} · {position} / {page['total']}"
+        if page.get("last_refresh"):
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            try:
+                stamp = datetime.fromisoformat(page["last_refresh"].replace("Z", "+00:00"))
+                if stamp.tzinfo is not None:
+                    local = stamp.astimezone(ZoneInfo("Europe/Warsaw"))
+                    html += "\nLast refresh: " + local.strftime("%d.%m %H:%M %Z")
+            except (ValueError, TypeError, AttributeError):
+                pass
+        if item:
+            label = {"added": "Published ↓", "updated": "Updated ↓", "price": "Rent ↑" if self.sources[source].topic == "housing" else "Price ↑"}[sort]
+            rows.append([button("↕️ Sort: " + label, f"view:{token}:sort")])
+        # Navigation is always the final row, including Home in empty states.
+        nav = []
+        if item and page["offset"] > 0:
+            nav.append(button("⬅️", f"view:{token}:prev"))
+
+        if item and page["offset"] + 1 < page["total"]:
+            nav.append(button("➡️", f"view:{token}:next"))
+        if nav:
+            rows.append(nav)
+        rows.append([button("⬅️ Back", f"back:{source}:housing"), button("🏠 Deck", "home")])
+        sent = await self.display(html, photo, InlineKeyboardMarkup(inline_keyboard=rows), message)
+        if not hasattr(sent, "message_id"):
+            raise ValueError("Missing review message identity")
+        with self.app.store.db:
+            if message:
+                self.app.store.db.execute(
+                    "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                    (message.message_id, self.recipient.get()),
+                )
+            if item:
+                self.app.store.db.execute(
+                    "INSERT INTO review_screens(token,source,mode,offset,item,message_id,parent,chat_id,sort) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (
+                        token,
+                        source,
+                        mode,
+                        page["offset"],
+                        json.dumps(item),
+                        sent.message_id,
+                        parent,
+                        self.recipient.get(),
+                        sort,
+                    ),
+                )
+        return sent
+
+    async def handle(self, update):
+        if (
+            not any(source.queue for source in self.app.settings.sources)
+            and not self.app.settings.home_socket
+        ):
+            return
+        callback = update.callback_query
+        message = callback.message if callback else update.message
+        sender = callback.from_user if callback else message.from_user if message else None
+        if (
+            not sender
+            or not isinstance(message, Message)
+            or not self.app.audience.authorize(sender, message, callback)
+        ):
+            return
+        token = self.recipient.set(sender.id)
+        try:
+            log.info(
+                "review.open recipient=%s operation=%s", sender.id, "callback" if callback else "command"
+            )
+            await self._handle(update, message, callback)
+        finally:
+            self.recipient.reset(token)
+
+    async def _handle(self, update, message, callback):
+        async with self.lock:
+            pending = self.app.store.rows(
+                "SELECT topic FROM subscription_pending WHERE user_id=?", (self.recipient.get(),)
+            )
+            for row in pending:
+                try:
+                    heads = await self.app.subscription_heads(row["topic"])
+                except Exception as error:
+                    log.warning(
+                        "subscription.enrollment_pending recipient=%s error=%s",
+                        self.recipient.get(),
+                        type(error).__name__,
+                    )
+                    await self.display("Source unavailable. Please try /start again.", None, self.menu())
+                    return
+                self.app.audience.subscriptions.set(
+                    self.app.settings.allowed_user_id, self.recipient.get(), row["topic"], True, heads=heads
+                )
+            if not callback:
+                command = (message.text or "").split("@", 1)[0]
+                source = next(
+                    (name for name, config in self.sources.items() if config.topic == "housing"), None
+                )
+                if command == "/start" and self.recipient.get() != self.app.settings.allowed_user_id:
+                    if not await self.app.housing_guide(self.recipient.get()):
+                        await self.home()
+                elif command in ("/start", "/menu"):
+                    await self.home()
+                elif command == "/vibecoding":
+                    await self.display("Under construction", None, self.menu())
+                elif command == "/housing" and source:
+                    await self.housing(source)
+                elif command in ("/queue", "/favorites") and source:
+                    await self.browse(
+                        source,
+                        "favorites" if command == "/favorites" else "queue",
+                        sort="added" if command == "/queue" else None,
+                    )
+                return
+            data = callback.data or ""
+            if data == "market":
+                if not any(config.topic.startswith("market.") for config in self.sources.values()):
+                    return
+                await self.app.bot.answer_callback_query(callback.id)
+                await self.market(message)
+                return
+            if data == "home:temperature":
+                if not self.app.settings.home_socket or not self.app.audience.subscriptions.allowed(
+                    self.recipient.get(), "home.temperature"
+                ):
+                    return
+                await self.app.bot.answer_callback_query(callback.id)
+                state = self.app.home.state
+                sample = state.get("sample")
+                text = "🌡 Home\n\nNo fresh measurement available."
+                if sample:
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+
+                    measured = datetime.fromtimestamp(sample["at"] / 1000, ZoneInfo("Europe/Warsaw"))
+                    text = f"🌡 Home\n\n{sample['temperature'] / 1000:g} °C\nMeasured: {measured:%d.%m.%Y %H:%M %Z}\n"
+                    text += "Alarm active" if state.get("active") else "No active alarm"
+                    if not state.get("fresh") or __import__("time").time() * 1000 > sample.get(
+                        "valid_until", sample["at"] + 360000
+                    ):
+                        text += "\nLast known reading · stale"
+                await self.display(
+                    text,
+                    None,
+                    InlineKeyboardMarkup(
+                        inline_keyboard=[[button("⬅️ Back", "home"), button("🏠 Deck", "home")]]
+                    ),
+                    message,
+                )
+                return
+            if data.startswith("manage:"):
+                if self.recipient.get() == self.app.settings.allowed_user_id:
+                    await self.app.bot.answer_callback_query(callback.id)
+                    try:
+                        await self.management(data, message)
+                    except (ValueError, PermissionError):
+                        return
+                return
+            if data == "vibecoding":
+                await self.app.bot.answer_callback_query(
+                    callback.id, text="Under construction", show_alert=True
+                )
+                return
+            if data.startswith("back:"):
+                parts = data.split(":")
+                if (
+                    len(parts) != 3
+                    or parts[1] not in self.sources
+                    or parts[2] not in ("home", "queue", "housing")
+                ):
+                    return
+                await self.app.bot.answer_callback_query(callback.id)
+                if parts[2] in ("queue", "housing"):
+                    await self.housing(parts[1], message)
+                else:
+                    await self.home(message)
+                return
+            if data == "home":
+                await self.app.bot.answer_callback_query(callback.id)
+                await self.home(message)
+                with self.app.store.db:
+                    self.app.store.db.execute(
+                        "DELETE FROM review_screens WHERE message_id=? AND chat_id=?",
+                        (message.message_id, self.recipient.get()),
+                    )
+                return
+            if data.startswith("housing:"):
+                source = data.split(":", 1)[1]
+                if source in self.sources:
+                    await self.app.bot.answer_callback_query(callback.id)
+                    await self.housing(source, message)
+                return
+            if data.startswith("browse:"):
+                parts = data.split(":")
+                if len(parts) != 3 or parts[1] not in self.sources or parts[2] not in ("queue", "favorites"):
+                    return
+                await self.app.bot.answer_callback_query(callback.id)
+                await self.browse(
+                    parts[1], parts[2], message=message, sort="added" if parts[2] == "queue" else None
+                )
+                return
+            parts = data.split(":")
+            if (
+                len(parts) != 3
+                or parts[0] != "view"
+                or parts[2]
+                not in ("prev", "next", "viewed", "favorite", "favorites", "queue", "position", "sort")
+            ):
+                return
+            view = self.app.store.one(
+                "SELECT * FROM review_screens WHERE token=? AND message_id=? AND chat_id=?",
+                (parts[1], message.message_id, self.recipient.get()),
+            )
+            if not view or view["source"] not in self.sources:
+                await self.app.bot.answer_callback_query(
+                    callback.id, text="Card changed. Open the queue again."
+                )
+                return
+            await self.app.bot.answer_callback_query(callback.id)
+            offset = view["offset"]
+            action = parts[2]
+            if action == "sort":
+                choices = ("added", "updated", "price")
+                sort = choices[(choices.index(view["sort"]) + 1) % len(choices)]
+                self.app.store.set(
+                    f"housing_sort:{self.recipient.get()}:{view['source']}:{view['mode']}", sort
+                )
+                await self.browse(view["source"], view["mode"], message=message, sort=sort)
+                return
+            if action == "position":
+                return
+            if action in ("favorites", "queue"):
+                await self.browse(
+                    view["source"],
+                    action,
+                    message=message,
+                    parent="queue" if action == "favorites" else "home",
+                )
+                return
+            item = json.loads(view["item"])
+            if action in ("prev", "next"):
+                # Removing the displayed favorite shifts its successor into this
+                # offset. The detached card remains undoable until navigation.
+                step = 0 if action == "next" and item.get("_detached") else 1 if action == "next" else -1
+                offset = max(0, offset + step)
+            else:
+                await self.queue_request(
+                    view["source"], item=(item["connector"], item["id"]), changes={action: not item[action]}
+                )
+                if view["mode"] == "favorites":
+                    item[action] = not item[action]
+                    item["_detached"] = not item["favorite"]
+                    current = await self.queue_request(view["source"], "favorites", offset, sort=view["sort"])
+                    total = current["total"] + int(item["_detached"])
+                    await self.browse(
+                        view["source"],
+                        "favorites",
+                        message=message,
+                        sort=view["sort"],
+                        page={
+                            "item": item,
+                            "total": total,
+                            "offset": min(offset, total - 1),
+                            "last_refresh": current.get("last_refresh"),
+                        },
+                    )
+                    return
+            await self.browse(
+                view["source"], view["mode"], offset, message, parent=view["parent"], sort=view["sort"]
+            )

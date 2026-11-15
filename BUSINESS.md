@@ -137,8 +137,8 @@ Never log bot tokens, phone numbers, listing descriptions or incoming message te
 
 Personal Notifier owns product_users, product_subscriptions and per-source
 subscription_watermarks. Stable topics are housing, market.astronomy,
-market.digital_pianos and home.temperature. Housing and optional Home climate are connected; Market integration and the
-Vibecoding-to-Radar migration remain pending.
+market.digital_pianos and home.temperature. Housing, Market and optional Home climate connections are supported; the
+Vibecoding-to-Radar migration remains pending.
 Existing pinned members migrate to Housing only. The owner starts subscribed to
 all four topics; startup never overrides later subscription changes.
 Management presents Topics → subscribers and Users → subscriptions, as two views
@@ -184,3 +184,20 @@ Only the owner is subscribed initially; housing members retain their existing
 scope. Technical collection/availability policy stays with Node Tools/Radar.
 Normal polling may detect the first drop up to ten minutes late and miss dips
 between observations. The sensor's own cadence bounds new measurement frequency.
+
+## Interactive product connections
+
+Web Watch provides Housing, Astronomy and Digital pianos through one private API
+and database. Each configured queue source selects its explicit product topic;
+missing topic retains legacy Housing compatibility. Check this topic in producer
+responses before admitting data, and read it again before product mutations so
+an older producer cannot silently treat a Market action as a Housing action.
+Feed cursors, subscriptions and recipient receipts remain source-specific.
+
+Home deck → Market → Astronomy/Digital pianos → Queue/Favorites uses exactly the
+Housing collection interaction: same photos, Viewed, favorite undo, source link,
+public phone copy, Published/Updated/base-price sort, carousel and Back/Deck.
+Market sections inherit the subscribed topic, never another user's permissions.
+Home temperature is notification-only and offers no object queue mutations.
+Bounded JSON reads consume the full HTTP body before parsing, including chunked
+Node Tools responses, while retaining the request deadline and total size limit.

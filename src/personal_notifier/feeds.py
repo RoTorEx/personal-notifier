@@ -7,6 +7,18 @@ from urllib.parse import urlsplit
 from aiohttp import ClientSession, ClientTimeout, UnixConnector
 
 
+async def bounded_json(response, limit):
+    import json
+
+    parts, size = [], 0
+    async for chunk in response.content.iter_chunked(16384):
+        size += len(chunk)
+        if size > limit:
+            raise ValueError("Response exceeds size limit")
+        parts.append(chunk)
+    return json.loads(b"".join(parts))
+
+
 def validate_presentation(value):
     if not isinstance(value, dict) or set(value) - {"html", "photo_url", "copy_text"}:
         raise ValueError("Invalid presentation")
@@ -69,20 +81,28 @@ class FeedClient:
             self.http = ClientSession(
                 connector=UnixConnector(path=str(self.source.socket)), timeout=ClientTimeout(total=10)
             )
-        async with self.http.get("http://source/events", params={"after": cursor, "limit": 100}) as response:
+        async with self.http.get(
+            "http://source/events",
+            params={
+                "after": cursor,
+                "limit": 100,
+                **({"topic": self.source.topic} if self.source.queue else {}),
+            },
+        ) as response:
             response.raise_for_status()
-            raw = await response.content.read(1_000_001)
-            if len(raw) > 1_000_000:
-                raise ValueError("Event response exceeds size limit")
-            import json
-
-            return json.loads(raw)
+            result = await bounded_json(response, 1_000_000)
+            if self.source.queue and result.get("topic", "housing") != self.source.topic:
+                raise ValueError("Producer does not confirm collection topic")
+            return result
 
     async def queue_request(
         self, mode="queue", offset=0, item=None, changes=None, actor="", sort="added", event_id=None
     ):
         if not self.source.queue:
             raise PermissionError("Queue controls are disabled for this source")
+        if item is not None and self.source.topic != "housing":
+            # Verify namespace before mutating, including after a producer rollback.
+            await self.queue_request(actor=actor, event_id=1)
         if self.http is None:
             self.http = ClientSession(
                 connector=UnixConnector(path=str(self.source.socket)), timeout=ClientTimeout(total=10)
@@ -90,7 +110,13 @@ class FeedClient:
         if item is None:
             if mode not in ("queue", "favorites") or type(offset) is not int or offset < 0:
                 raise ValueError("Invalid queue request")
-            params = {"mode": mode, "offset": offset, "actor": actor, "sort": sort}
+            params = {
+                "mode": mode,
+                "offset": offset,
+                "actor": actor,
+                "sort": sort,
+                "topic": self.source.topic,
+            }
             if event_id is not None:
                 if type(event_id) is not int or event_id <= 0:
                     raise ValueError("Invalid queue notice event")
@@ -109,17 +135,14 @@ class FeedClient:
             connector, identifier = item
             request = self.http.patch(
                 "http://source/items/" + quote(connector, safe="") + "/" + quote(identifier, safe=""),
-                params={"actor": actor, "sort": sort},
+                params={"actor": actor, "sort": sort, "topic": self.source.topic},
                 json=changes,
             )
         async with request as response:
             response.raise_for_status()
-            raw = await response.content.read(100_001)
-            if len(raw) > 100_000:
-                raise ValueError("Queue response exceeds limit")
-            import json
-
-            result = json.loads(raw)
+            result = await bounded_json(response, 100_000)
+            if result.get("topic", "housing") != self.source.topic:
+                raise ValueError("Producer does not confirm collection topic")
         if item is None:
             if (
                 type(result.get("total")) is not int

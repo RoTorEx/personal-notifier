@@ -15,3 +15,19 @@ name = "housing"
 socket = "/run/housing-watch/api.sock"
 poll_seconds = 900 # Quarter-hour wall-clock boundaries; source UI remains immediate.
 queue = true # Owner-only review API; Core remains read-only.
+
+# Interactive product connections share the Web Watch socket and UI.
+# Enable only after a producer confirming these topics is deployed.
+# [[sources]]
+# name = "astronomy"
+# socket = "/run/web-watch/api.sock"
+# poll_seconds = 900
+# queue = true
+# topic = "market.astronomy"
+#
+# [[sources]]
+# name = "pianos"
+# socket = "/run/web-watch/api.sock"
+# poll_seconds = 900
+# queue = true
+# topic = "market.digital_pianos"

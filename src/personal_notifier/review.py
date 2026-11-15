@@ -57,13 +57,16 @@ class ReviewUI:
         return {
             source.name: source
             for source in self.app.settings.sources
-            if source.queue and self.app.audience.subscriptions.allowed(self.recipient.get(), "housing")
+            if source.queue and self.app.audience.subscriptions.allowed(self.recipient.get(), source.topic)
         }
 
     def menu(self):
         rows = [[button("🛠 Vibecoding", "vibecoding")]]
-        for source in self.sources:
-            rows.append([button("🏠 Housing", f"housing:{source}")])
+        for source, config in self.sources.items():
+            if config.topic == "housing":
+                rows.append([button("🏠 Housing", f"housing:{source}")])
+        if any(config.topic.startswith("market.") for config in self.sources.values()):
+            rows.append([button("🛍 Market", "market")])
         if self.app.settings.home_socket and self.app.audience.subscriptions.allowed(
             self.recipient.get(), "home.temperature"
         ):
@@ -172,7 +175,9 @@ class ReviewUI:
         # Read the same personal unviewed queue used by the carousel at delivery.
         if new_listing or re.search(r"\d+ (?:in queue|waiting in your queue)", text):
             target = recipient or self.app.settings.allowed_user_id
-            if not self.app.audience.subscriptions.allowed(target, "housing"):
+            if not self.app.audience.subscriptions.allowed(
+                target, next(config.topic for config in self.app.settings.sources if config.name == source)
+            ):
                 return None
             kwargs = {"actor": str(target)} if target != self.app.settings.allowed_user_id else {}
             is_new = new_listing if new_listing is not None else re.search(r"\d+ new ·", text) is not None
@@ -212,9 +217,25 @@ class ReviewUI:
                 )
         return sent
 
+    async def market(self, message=None):
+        from personal_notifier.subscriptions import TOPICS
+
+        rows = [
+            [button(TOPICS[config.topic], f"housing:{name}")]
+            for name, config in self.sources.items()
+            if config.topic.startswith("market.")
+        ]
+        rows.append([button("⬅️ Back", "home"), button("🏠 Deck", "home")])
+        return await self.display(
+            "🛍 Market\n\nChoose a collection.", None, InlineKeyboardMarkup(inline_keyboard=rows), message
+        )
+
     async def housing(self, source, message=None):
+        from personal_notifier.subscriptions import TOPICS
+
+        config = self.sources[source]
         sent = await self.display(
-            "<b>🏠 Housing</b>\n\nChoose a collection.",
+            "<b>" + TOPICS[config.topic] + "</b>\n\nChoose a collection.",
             None,
             InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -222,7 +243,10 @@ class ReviewUI:
                         button("📋 Queue", f"browse:{source}:queue"),
                         button("⭐ Favorites", f"browse:{source}:favorites"),
                     ],
-                    [button("⬅️ Back", "home"), button("🏠 Deck", "home")],
+                    [
+                        button("⬅️ Back", "market" if config.topic.startswith("market.") else "home"),
+                        button("🏠 Deck", "home"),
+                    ],
                 ]
             ),
             message,
@@ -321,7 +345,15 @@ class ReviewUI:
                 ]
             )
             host = urlsplit(item["url"]).hostname or "listing"
-            platform = "OLX" if host.endswith("olx.pl") else "Otodom" if host.endswith("otodom.pl") else host
+            platform = (
+                "OLX"
+                if host.endswith("olx.pl")
+                else "Otodom"
+                if host.endswith("otodom.pl")
+                else "Allegro Lokalnie"
+                if host.endswith("allegrolokalnie.pl")
+                else host
+            )
             rows[0].append(InlineKeyboardButton(text=platform, url=item["url"]))
             if card.get("copy_text"):
                 rows.append(
@@ -350,7 +382,11 @@ class ReviewUI:
             except (ValueError, TypeError, AttributeError):
                 pass
         if item:
-            label = {"added": "Published ↓", "updated": "Updated ↓", "price": "Rent ↑"}[sort]
+            label = {
+                "added": "Published ↓",
+                "updated": "Updated ↓",
+                "price": "Rent ↑" if self.sources[source].topic == "housing" else "Price ↑",
+            }[sort]
             rows.append([button("↕️ Sort: " + label, f"view:{token}:sort")])
         # Navigation is always the final row, including Home in empty states.
         nav = []
@@ -433,7 +469,9 @@ class ReviewUI:
                 )
             if not callback:
                 command = (message.text or "").split("@", 1)[0]
-                source = next(iter(self.sources), None)
+                source = next(
+                    (name for name, config in self.sources.items() if config.topic == "housing"), None
+                )
                 if command == "/start" and self.recipient.get() != self.app.settings.allowed_user_id:
                     if not await self.app.housing_guide(self.recipient.get()):
                         await self.home()
@@ -451,6 +489,12 @@ class ReviewUI:
                     )
                 return
             data = callback.data or ""
+            if data == "market":
+                if not any(config.topic.startswith("market.") for config in self.sources.values()):
+                    return
+                await self.app.bot.answer_callback_query(callback.id)
+                await self.market(message)
+                return
             if data == "home:temperature":
                 if not self.app.settings.home_socket or not self.app.audience.subscriptions.allowed(
                     self.recipient.get(), "home.temperature"

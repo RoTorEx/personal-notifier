@@ -104,3 +104,40 @@ async def test_stale_data_suppresses_retries_and_warm_data_stops_alarms(pair):
     home.capture(sample(15000, 1300), 1300)
     await home.deliver(sample(15000, 1300), 1300)
     assert len(pair.store.rows("SELECT * FROM home_receipts")) == 1
+
+
+async def test_climate_read_waits_for_all_http_chunks(pair):
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from aiohttp import web
+
+    payload = {"freshness_seconds": 360, "sensor": None, "history": [None] * 10000}
+    raw = json.dumps(payload).encode()
+
+    async def chunks(request):
+        import asyncio
+
+        response = web.StreamResponse(headers={"Content-Type": "application/json"})
+        await response.prepare(request)
+        await response.write(raw[:80])
+        await asyncio.sleep(0.01)
+        await response.write(raw[80:])
+        await response.write_eof()
+        return response
+
+    with tempfile.TemporaryDirectory(prefix="home-read-", dir="/tmp") as directory:
+        app = web.Application()
+        app.router.add_get("/api/v1/climate", chunks)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        socket = Path(directory) / "read.sock"
+        await web.UnixSite(runner, str(socket)).start()
+        pair.settings = replace(pair.settings, home_socket=socket)
+        home = Home(pair)
+        try:
+            assert await home.read() == payload
+        finally:
+            await home.close()
+            await runner.cleanup()
