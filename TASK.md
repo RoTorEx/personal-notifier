@@ -62,22 +62,36 @@ identities, producer data, per-person flags and real delivery receipts.
    carousel and Back/Deck. Quiet initial inventory, one new-findings summary per
    topic, no queue reminders. Scan every 600s; feed capture every 900s, wall-clock
    boundaries without offsets. New IDs only; pure updates do not notify.
-5. Add a bounded cursor-based raw climate-event Unix read endpoint to Node Tools
-   for its configured indoor stream; no DB mounts or chart-average evaluation.
-   Create home-watch via the personal-repository skill, read every 30s; Notifier
-   consumes every 30s independently of listing feeds. Below 15 opens an episode;
-   further thresholds are 14.5, 14.0, 13.5 and downward by 0.5 degrees Celsius.
-   Exact 15 does not open; later thresholds trigger at or below. One alert per
-   newly crossed threshold/episode, coalesce jumps and obsolete pending alerts.
-   Rearm after two distinct consecutive fresh readings >=15.5; recovery is quiet.
-   Persist cursor/rule/outbox atomically. Ignore duplicate/out-of-order/stale,
-   failed and untrusted readings for transitions; failures are not zero degrees.
-   Initial/reconnect reconcile latest fresh state without historical alert spam.
-   Home UI shows measurement time/freshness/current rule state. Technical faults
-   go to Radar; do not reenable disabled Raspberry policies automatically.
+5. Implement Home directly in Personal Notifier, as the owner's later correction:
+   do not create a home-watch repository, service or new telemetry collector.
+   Read the existing Node Tools climate API's latest raw indoor measurement,
+   using its read-only socket and a separate async loop. Do not evaluate CPU
+   temperature, chart averages or repeatedly dated last-valid fallback readings.
+   Poll every 600 seconds normally; switch to 60 seconds when a distinct fresh
+   temperature is below the previous accepted temperature, or a cold episode
+   remains active. Return to 600 seconds after two consecutive distinct fresh
+   readings >=15.5 Celsius with no decrease; never count repeated polls as samples.
+   The normal poll interval permits up to ten minutes to notice the first drop
+   and can miss dips between observations. Faster polling cannot create sensor
+   samples; collection currently occurs about every two minutes.
+   Below 15 opens a cold episode; further thresholds are 14.5, 14.0, 13.5 and
+   downward by 0.5 Celsius. Exact 15 does not open; later thresholds trigger at or
+   below. Emit one current alert for a multi-threshold jump and retain notified
+   thresholds until rearmed. Rearm after two distinct consecutive fresh readings
+   >=15.5; recovery is quiet. Persist accepted measurement identity, trend,
+   episode and product events/receipts in Notifier's own database, atomically
+   where required; restart preserves the active fast-poll state and episode.
+   Failed, stale, duplicate, out-of-order or untrusted readings never establish
+   a transition or become zero degrees. Do not infer recovery from missing data.
+   Startup/reconnect evaluates the latest fresh state without historical spam;
+   superseded unsent cold alerts must not become misleading current warnings.
+   Home UI shows measured time, freshness, temperature and active threshold.
+   Subscription enforcement is home.temperature; Ira remains Housing-only until
+   explicitly assigned. Sensor/collector failure belongs to Radar's existing
+   technical policy; do not reenable disabled Raspberry policies automatically.
 6. Independent versioned releases/deployments per verified slice. Existing bots
-   keep their deployment forms; new collectors use separate native systemd units,
-   config/data/users. No broker/shared writable DB/shared subscription service.
+   keep their deployment forms; Market Watch uses a separate native systemd unit, config/data/user.
+   Home polling uses Notifier’s independent async loop and existing database. No broker/shared writable DB/shared subscription service.
    Safe logs cover polls, scans, event IDs, subscription changes, retries and
    delivery receipts without secrets/contact/body content. Read back installed
    versions and use real deployed UI/API paths. Preserve rollback points.
@@ -89,6 +103,6 @@ all area aliases, rent boundaries excluding fees, no rooms, mixed-platform date
 sort, unchanged flags, owner-only management, guest isolation and subscription
 revocation/resubscription. Exercise actual menus, empty state, Viewed, Favorite
 undo, photos, sorting and navigation. Verify both Market platforms from the VPS.
-Test temperature boundaries, oscillation, jumps, recovery, missing data, clock
+Test adaptive 600/60-second polling, distinct-sample trend handling, temperature boundaries, oscillation, jumps, recovery, missing data, clock
 trust, restart and backlog. Verify Vibecoding handover without lost pending
 outcomes or avoidable replay. Telegram acceptance is not proof of human reading.
