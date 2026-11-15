@@ -91,3 +91,16 @@ async def test_failed_first_enrollment_stays_closed_and_retries(pair):
     await pair.handle(start())
     assert pair.audience.subscriptions.allowed(99, "housing")
     assert not pair.store.one("SELECT 1 FROM subscription_pending WHERE user_id=99")
+
+
+async def test_outdoor_enrollment_is_owner_only_and_restart_preserves_opt_out(pair):
+    from personal_notifier.subscriptions import Subscriptions
+
+    await pair.handle(start())
+    subs = pair.audience.subscriptions
+    assert subs.allowed(42, "market.outdoor")
+    assert not subs.allowed(99, "market.outdoor")
+    subs.set(42, 42, "market.outdoor", False)
+    resumed = Subscriptions(pair.store, 42)
+    assert not resumed.allowed(42, "market.outdoor")
+    assert resumed.allowed(99, "housing")

@@ -31,3 +31,10 @@ queue = true # Owner-only review API; Core remains read-only.
 # poll_seconds = 900
 # queue = true
 # topic = "market.digital_pianos"
+
+# [[sources]]
+# name = "outdoor"
+# socket = "/run/web-watch/api.sock"
+# poll_seconds = 900
+# queue = true
+# topic = "market.outdoor"

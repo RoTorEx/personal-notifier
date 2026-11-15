@@ -139,7 +139,7 @@ Never log bot tokens, phone numbers, listing descriptions or incoming message te
 
 Personal Notifier owns product_users, product_subscriptions and per-source
 subscription_watermarks. Stable topics are housing, market.astronomy,
-market.digital_pianos and home.temperature. Housing, Market and optional Home climate connections are supported; the
+market.digital_pianos, home.temperature and market.outdoor. Housing, Market and optional Home climate connections are supported; the
 Vibecoding-to-Radar handover preserves the prior cursor, work counters, pending
 outcome identities and genuine receipts in a protected one-off export.
 Existing pinned members migrate to Housing only. The owner starts subscribed to
@@ -204,3 +204,13 @@ Market sections inherit the subscribed topic, never another user's permissions.
 Home temperature is notification-only and offers no object queue mutations.
 Bounded JSON reads consume the full HTTP body before parsing, including chunked
 Node Tools responses, while retaining the request deadline and total size limit.
+
+## Outdoor subscription and interface
+
+Outdoor is another Market collection using exactly the same source-owned review
+UI and API boundaries as Housing/Astronomy/Pianos. Its producer watchlist is owned
+by Web Watch business/outdoor.md. New existing installations enroll only the owner
+once; invited housing participants retain their scope. Respect an owner's later
+opt-out on restart. Append the new topic after existing topics to preserve numeric
+management callback identities. Photo cards, source links, Viewed, undoable
+favorite, sort, carousel and Back/Deck reuse the existing implementation.

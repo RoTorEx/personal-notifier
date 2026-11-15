@@ -68,7 +68,7 @@ class Settings:
             if type(queue) is not bool:
                 raise ValueError("queue must be boolean")
             topic = source.get("topic", "housing")
-            if topic not in ("housing", "market.astronomy", "market.digital_pianos"):
+            if topic not in ("housing", "market.astronomy", "market.digital_pianos", "market.outdoor"):
                 raise ValueError("Unknown collection topic")
             sources.append(FeedSource(name, socket, interval, queue, topic))
         values["sources"] = tuple(sources)

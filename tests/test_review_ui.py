@@ -332,3 +332,39 @@ async def test_successful_screen_without_keyboard_is_repaired(app):
     sent = await app.review.browse("housing", "queue")
     assert sent.reply_markup and sent.reply_markup.inline_keyboard
     assert any(isinstance(m, EditMessageReplyMarkup) for m in app.bot.session.calls)
+
+
+async def test_outdoor_uses_existing_market_collection_and_per_user_scope(app):
+    from dataclasses import replace
+
+    from personal_notifier.config import FeedSource
+    from personal_notifier.subscriptions import Subscriptions
+
+    app.settings = replace(
+        app.settings,
+        sources=app.settings.sources
+        + (FeedSource("outdoor", app.settings.runtime_dir / "outdoor.sock", 900, True, "market.outdoor"),),
+    )
+    app.feeds["outdoor"] = QueueFeed()
+    Subscriptions(app.store, app.settings.allowed_user_id)
+    await app.review.market()
+    market = list(app.bot.session.messages.values())[-1]
+    assert action(market, "Outdoor") == "housing:outdoor"
+    await app.handle(callback(market, action(market, "Outdoor")))
+    section = list(app.bot.session.messages.values())[-1]
+    assert "Outdoor" in section.text
+    await app.handle(callback(section, action(section, "Queue")))
+    card = list(app.bot.session.messages.values())[-1]
+    assert action(card, "Viewed") and action(card, "Favorite") and action(card, "Sort:")
+    await app.handle(callback(card, action(card, "Favorite")))
+    card = app.bot.session.messages[card.message_id]
+    await app.handle(callback(card, action(card, "Viewed")))
+    assert app.feeds["outdoor"].items[0]["viewed"]
+    assert app.feeds["outdoor"].items[0]["favorite"]
+    assert not app.feeds["housing"].items[0]["viewed"]
+
+    ctx = app.review.recipient.set(99)
+    try:
+        assert "outdoor" not in app.review.sources
+    finally:
+        app.review.recipient.reset(ctx)

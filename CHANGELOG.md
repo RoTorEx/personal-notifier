@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add the independently subscribed Outdoor Market collection with the existing Queue/Favorites and carousel interface. Enroll only the owner once, preserve opt-out on restart and retain existing Management callback indices.
+
 ## [0.5.0] - 2026-11-16
 
 - Move technical Vibecoding entry points to Node Radar; disabling Core also stops pending legacy sends without deleting their receipts. Remove the Core socket mount from the product bot.
