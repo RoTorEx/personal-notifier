@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-15
+
 - Add topic-scoped Market connections with the Housing queue/favorites interface, subscription enforcement and producer-topic checks before review actions.
 - Read complete bounded HTTP bodies for climate and listing feeds; fragmented Node Tools responses no longer fail JSON decoding.
 
