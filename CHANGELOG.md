@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-15
+
 - Add optional notification-only Home climate directly from Node Tools, with independent 10/1-minute adaptive polling.
 - Persist cold episodes below 15 Celsius, half-degree threshold alarms and recurring five-minute alarms, with fresh-data checks and recipient-specific delivery receipts.
 - Add the subscription-protected Home status screen; preserve Housing queues and existing technical monitoring.
