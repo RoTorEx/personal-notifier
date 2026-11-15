@@ -77,7 +77,20 @@ identities, producer data, per-person flags and real delivery receipts.
    Below 15 opens a cold episode; further thresholds are 14.5, 14.0, 13.5 and
    downward by 0.5 Celsius. Exact 15 does not open; later thresholds trigger at or
    below. Emit one current alert for a multi-threshold jump and retain notified
-   thresholds until rearmed. Rearm after two distinct consecutive fresh readings
+   thresholds until rearmed. Additionally send a recurring Temperature alarm
+   every 300 seconds while the latest fresh indoor reading is strictly below 15,
+   even without a new 0.5-degree crossing. The first cold alarm establishes the
+   five-minute reminder cadence; intermediate threshold alarms do not postpone
+   it. Coalesce coincident threshold and recurring alarms into one message.
+   Persist the reminder schedule and last actually reported temperature alongside
+   episode state. Say temperature decreased only when lower than the previously
+   reported value; otherwise say it remains below threshold, showing current
+   temperature and measurement time. Repeats stop at >=15 or when the latest
+   reading is unavailable/stale/untrusted. After an outage reconcile fresh state
+   and send at most one currently due alarm, not missed historical reminders.
+   These Home alarms are available around the clock to home.temperature
+   subscribers and do not reintroduce Housing/Market queue reminders.
+   Rearm after two distinct consecutive fresh readings
    >=15.5; recovery is quiet. Persist accepted measurement identity, trend,
    episode and product events/receipts in Notifier's own database, atomically
    where required; restart preserves the active fast-poll state and episode.
@@ -103,6 +116,8 @@ all area aliases, rent boundaries excluding fees, no rooms, mixed-platform date
 sort, unchanged flags, owner-only management, guest isolation and subscription
 revocation/resubscription. Exercise actual menus, empty state, Viewed, Favorite
 undo, photos, sorting and navigation. Verify both Market platforms from the VPS.
-Test adaptive 600/60-second polling, distinct-sample trend handling, temperature boundaries, oscillation, jumps, recovery, missing data, clock
+Test adaptive 600/60-second polling, five-minute cold alarms without any
+0.5-degree change, simultaneous-trigger coalescing, stale-data repeat suppression,
+restart without replay bursts, distinct-sample trend handling, temperature boundaries, oscillation, jumps, recovery, missing data, clock
 trust, restart and backlog. Verify Vibecoding handover without lost pending
 outcomes or avoidable replay. Telegram acceptance is not proof of human reading.
