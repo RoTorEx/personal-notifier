@@ -2,7 +2,7 @@
 
 One private Telegram notification feed for the configured numeric owner, with
 explicitly invited housing-only participants. Independent
-sources own their data: Housing Watch owns collection, cards, queue membership and
+sources own their data: Web Watch owns collection, cards, queue membership and
 viewed/favorite flags; Vibecoding Core owns native sessions and execution. This
 repository owns Telegram identity, event cursors, delivery receipts and review UI.
 Node Radar retains infrastructure notifications. No source implementation is imported.
@@ -75,7 +75,7 @@ API markup confirms server state but not physical client rendering.
 
 ## Quiet notifications and persistence
 
-Housing Watch scans every 600 seconds on ten-minute wall-clock boundaries and owns digest timing. Queue-mode
+Web Watch scans every 600 seconds on ten-minute wall-clock boundaries and owns digest timing. Queue-mode
 capture advances past legacy individual housing.listing.* events without pushing
 them. Only *.queue.summary enters delivery; legacy *.queue.reminder events advance
 the cursor without being captured. New findings produce

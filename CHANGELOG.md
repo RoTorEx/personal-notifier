@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Use only the canonical Web Watch service and socket paths in deployment templates; remove references to the previous collector identity.
+
 ## [0.4.0] - 2026-11-15
 
 - Add topic-scoped Market connections with the Housing queue/favorites interface, subscription enforcement and producer-topic checks before review actions.

@@ -18,7 +18,7 @@ services:
       - /srv/personal-notifier/config:/config:ro
       - /srv/personal-notifier/data:/data
       - /srv/remote-vibecoding/data/core/run:/run/vibecoding:ro
-      - /srv/housing-watch/run:/run/housing-watch:ro
+      - /srv/web-watch/run:/run/web-watch:ro
       - /run/node-tools-ingest:/run/node-tools:ro
     tmpfs:
       - /tmp:size=16m,mode=1777

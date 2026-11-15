@@ -7,12 +7,12 @@ identities, producer data, per-person flags and real delivery receipts.
 
 ## Current checkpoint
 
-- Housing Watch 0.1.11 is published and deployed at revision
+- Web Watch 0.1.11 is published and deployed at revision
   3bd82276b674c61171411e17b7faf44d66dad868. Issue #1's eight-area alias matcher
   and 3,500 PLN inclusive base-rent limit are active. Archive reseeding preserves
   owner/participant flags and event count. Release messages were accepted by
-  Telegram for Alex (163) and Ira (164). Recovery belongs to Housing Watch under
-  /srv/housing-watch/{runtime,data}/before-areas-0.1.11. Retain until a later
+  Telegram for Alex (163) and Ira (164). Recovery belongs to Web Watch under
+  /srv/web-watch/{runtime,data}/before-areas-0.1.11. Retain until a later
   verified deployment explicitly retires it; reconcile cursors before DB restore.
 - Personal Notifier 0.2.0 is published at revision
   0c3d6ef1a3c605422a293717cfd3e51381a1963c and deployed. All 206 tests,
@@ -45,7 +45,7 @@ identities, producer data, per-person flags and real delivery receipts.
 ## Accepted architecture and remaining execution order
 
 The owner superseded the separate Market Watch/Home Watch design:
-- The former housing-watch repo is renamed RoTorEx/web-watch, with its Git history
+- The former web-watch repo is renamed RoTorEx/web-watch, with its Git history
   and private visibility preserved. Local path is projects/home/web-watch. It owns
   housing and listing modules, one observations/review database, shared source
   connectors and the private interactive API. The existing native service/state

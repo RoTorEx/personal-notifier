@@ -12,7 +12,7 @@ housing_usernames = [] # Optional housing-only users; first private /start pins 
 
 [[sources]]
 name = "housing"
-socket = "/run/housing-watch/api.sock"
+socket = "/run/web-watch/api.sock"
 poll_seconds = 900 # Quarter-hour wall-clock boundaries; source UI remains immediate.
 queue = true # Owner-only review API; Core remains read-only.
 
