@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Move technical Vibecoding entry points to Node Radar; disabling Core also stops pending legacy sends without deleting their receipts. Remove the Core socket mount from the product bot.
+
 ## [0.4.1] - 2026-11-15
 
 - Use only the canonical Web Watch service and socket paths in deployment templates; remove references to the previous collector identity.

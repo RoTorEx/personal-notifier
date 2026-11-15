@@ -93,6 +93,9 @@ async def test_sort_cycles_and_stays_selected_on_navigation(pair):
 
 
 async def test_each_recipient_gets_one_delivery_and_core_stays_owner_only(pair):
+    from dataclasses import replace
+
+    pair.settings = replace(pair.settings, core_enabled=True)
     await pair.handle(start())
     with pair.store.db:
         pair.store.db.execute(

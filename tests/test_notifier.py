@@ -242,3 +242,20 @@ async def test_truncated_history_does_not_invent_work_duration(tmp_path):
     assert app.store.get("notifier_seconds", "0") == "0"
     app.store.close()
     await bot.session.close()
+
+
+async def test_disabled_core_preserves_pending_receipts_without_sending(notifier):
+    from dataclasses import replace
+
+    app, transport, core, native = notifier
+    app.settings = replace(app.settings, core_enabled=False)
+    with app.store.db:
+        app.store.db.execute(
+            "INSERT INTO notifier_notices VALUES(987654,'session','Pending technical outcome',1,NULL)"
+        )
+    before = len(transport.calls)
+    await app.deliver()
+    assert len(transport.calls) == before
+    assert (
+        app.store.one("SELECT telegram_id FROM notifier_notices WHERE event_id=987654")["telegram_id"] is None
+    )

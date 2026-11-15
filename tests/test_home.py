@@ -141,3 +141,26 @@ async def test_climate_read_waits_for_all_http_chunks(pair):
         finally:
             await home.close()
             await runner.cleanup()
+
+
+async def test_alarm_cadence_after_database_reopen_has_no_replay_burst(pair):
+    from personal_notifier.audience import HousingAudience
+    from personal_notifier.store import BotStore
+
+    home = Home(pair)
+    home.capture(sample(14900), 1000)
+    await home.deliver(sample(14900), 1000)
+    path = pair.settings.data_dir / "bot.db"
+    pair.store.close()
+    pair.store = BotStore(path)
+    pair.audience = HousingAudience(pair.settings, pair.store)
+    resumed = Home(pair)
+    resumed.capture(sample(14900, 1180), 1180)
+    await resumed.deliver(sample(14900, 1180), 1180)
+    assert len(pair.store.rows("SELECT * FROM home_receipts")) == 1
+    resumed.capture(sample(14900, 2200), 2200)
+    await resumed.deliver(sample(14900, 2200), 2200)
+    await resumed.deliver(sample(14900, 2200), 2200)
+    rows = pair.store.rows("SELECT * FROM home_receipts")
+    assert len(rows) == 2 and all(row["recipient"] == 42 for row in rows)
+    assert "remains below" in pair.store.one("SELECT body FROM home_notices ORDER BY id DESC LIMIT 1")["body"]

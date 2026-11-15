@@ -9,8 +9,7 @@ Node Radar retains infrastructure notifications. No source implementation is imp
 
 ## Home deck and owner boundary
 
-The English Home deck contains Vibecoding, Housing when subscribed, and owner-only Management. Vibecoding shows only an
-Under construction callback alert; its existing independent push notices continue.
+The English Home deck contains subscribed Housing, Market and optional Home connections, plus owner-only Management. Vibecoding outcomes belong to Node Radar; retained old commands/callbacks point there. No execution or technical collection entry appears in the product deck.
 Housing opens a text section menu with 📋 Queue and ⭐ Favorites. Each collection
 has its own carousel. Viewed removes a card from Queue immediately. Removing a
 favorite inside Favorites keeps that card visible and undoable until explicit
@@ -98,7 +97,10 @@ available. Browsing uses current old-plus-new unviewed entries.
 Pure source updates refresh cards without creating new-identity notifications.
 
 Generic non-queue feeds retain their existing text/photo notifications. Vibecoding
-keeps its distinct [Vibecoding] outcome notices. Source captures and cursors commit
+outcomes are read by Node Tools and delivered by Node Radar. Production sets
+core_enabled=false; both Core collection and pending legacy delivery are disabled.
+Keep the old cursor, work counters and genuine receipts for handover/recovery,
+without a Core socket mount in the product bot. Source captures and cursors commit
 atomically; known successful Telegram message IDs never replay on restart. A lost
 acceptance response or crash before receipt may repeat a send: exactly-once is not
 claimed. Producer logs have no consumer acknowledgements or automatic pruning.
@@ -138,7 +140,8 @@ Never log bot tokens, phone numbers, listing descriptions or incoming message te
 Personal Notifier owns product_users, product_subscriptions and per-source
 subscription_watermarks. Stable topics are housing, market.astronomy,
 market.digital_pianos and home.temperature. Housing, Market and optional Home climate connections are supported; the
-Vibecoding-to-Radar migration remains pending.
+Vibecoding-to-Radar handover preserves the prior cursor, work counters, pending
+outcome identities and genuine receipts in a protected one-off export.
 Existing pinned members migrate to Housing only. The owner starts subscribed to
 all four topics; startup never overrides later subscription changes.
 Management presents Topics → subscribers and Users → subscriptions, as two views

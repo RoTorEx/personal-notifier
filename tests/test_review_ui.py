@@ -106,7 +106,6 @@ async def test_deck_housing_menu_then_carousel_and_separate_back(app):
     await app.handle(Update.model_validate(update(text="/menu")))
     deck = list(app.bot.session.messages.values())[-1]
     assert [[b.text for b in row] for row in deck.reply_markup.inline_keyboard] == [
-        ["🛠 Vibecoding"],
         ["🏠 Housing"],
         ["⚙️ Management"],
     ]

@@ -61,7 +61,7 @@ class ReviewUI:
         }
 
     def menu(self):
-        rows = [[button("🛠 Vibecoding", "vibecoding")]]
+        rows = []
         for source, config in self.sources.items():
             if config.topic == "housing":
                 rows.append([button("🏠 Housing", f"housing:{source}")])
@@ -73,7 +73,7 @@ class ReviewUI:
             rows.append([button("🌡 Home", "home:temperature")])
         if self.recipient.get() == self.app.settings.allowed_user_id:
             rows.append([button("⚙️ Management", "manage:home")])
-        return InlineKeyboardMarkup(inline_keyboard=rows)
+        return InlineKeyboardMarkup(inline_keyboard=rows or [[button("🔄 Refresh", "home")]])
 
     async def management(self, data, message):
         if self.recipient.get() != self.app.settings.allowed_user_id:
@@ -478,7 +478,9 @@ class ReviewUI:
                 elif command in ("/start", "/menu"):
                     await self.home()
                 elif command == "/vibecoding":
-                    await self.display("Under construction", None, self.menu())
+                    await self.display(
+                        "Technical outcomes are available in @node_radar_bot.", None, self.menu()
+                    )
                 elif command == "/housing" and source:
                     await self.housing(source)
                 elif command in ("/queue", "/favorites") and source:
@@ -534,7 +536,7 @@ class ReviewUI:
                 return
             if data == "vibecoding":
                 await self.app.bot.answer_callback_query(
-                    callback.id, text="Under construction", show_alert=True
+                    callback.id, text="Technical outcomes are available in @node_radar_bot.", show_alert=True
                 )
                 return
             if data.startswith("back:"):

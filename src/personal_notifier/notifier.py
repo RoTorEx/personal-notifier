@@ -325,14 +325,17 @@ class Notifier:
 
     async def deliver(self):
         # Merge sources into one paced queue; old Core receipts stay authoritative.
-        rows = self.store.rows("""
+        rows = self.store.rows(
+            """
             SELECT 'vibecoding' AS source,event_id,body,'' AS url,session_id,1 AS priority,created,NULL AS presentation,'' AS event_type
-            FROM notifier_notices WHERE telegram_id IS NULL
+            FROM notifier_notices WHERE telegram_id IS NULL AND ?
             UNION ALL
             SELECT source,event_id,body,url,NULL AS session_id,priority,created,presentation,event_type
             FROM feed_notices WHERE telegram_id IS NULL AND suppressed=0
             ORDER BY priority DESC,created,event_id LIMIT 10
-        """)
+        """,
+            (int(self.settings.core_enabled),),
+        )
         queue_sources = {source.name: source.topic for source in self.settings.sources if source.queue}
         for row in rows:
             if row["source"] in queue_sources:
@@ -559,7 +562,6 @@ class Notifier:
                 await self.bot.set_my_commands(
                     [
                         BotCommand(command="menu", description="Home deck"),
-                        BotCommand(command="vibecoding", description="Vibecoding"),
                         BotCommand(command="housing", description="Housing"),
                     ],
                     scope=BotCommandScopeChat(chat_id=self.settings.allowed_user_id),

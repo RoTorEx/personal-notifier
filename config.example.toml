@@ -5,7 +5,7 @@ allowed_user_id = 123456789 # Replace with the existing verified numeric operato
 bot_username = "existing_bot_username"
 web_url = "https://vibecoding.com"
 host_id = "hz-fi-001"
-core_enabled = true
+core_enabled = false # Technical outcomes belong to Node Tools / Node Radar.
 # Optional notification-only indoor climate connection:
 # home_socket = "/run/node-tools/read.sock"
 housing_usernames = [] # Optional housing-only users; first private /start pins their numeric ID.
