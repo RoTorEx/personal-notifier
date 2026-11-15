@@ -73,11 +73,11 @@ chat-scoped review_screens. Keep backups before either additive migration.
 Read activity through docker logs personal-notifier and journalctl -u housing-watch;
 existing journald retention applies. No extra file log or unbounded duplicate sink.
 
-Queue-reminder quiet time is 00:00–12:00 Europe/Warsaw. This applies only to
-reminders, not new findings, guides or direct owner/participant UI actions. The
-producer avoids night reminder events, while the sender suppresses queued stale
-reminders with feed_notices.suppressed=1 and no synthetic telegram_id. The additive
-column defaults to zero for existing rows; retain receipts and guide keys on update.
+Queue reminders are disabled for all hours and all housing recipients. Ignore
+legacy reminder events during capture and mark pending reminders suppressed=1
+without inventing telegram_id values. Producer and guest reminder timers are
+retired. Keep old reminder records/clock keys as history; do not replay or delete
+review state. A once-only requested guide is distinct from automatic reminders.
 
 Queue counts in historical producer events can differ from current Viewed state.
 The sender reads the source queue before every count-bearing notification for both

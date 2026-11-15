@@ -27,7 +27,6 @@ from personal_notifier.client import CoreClient, ReadOnlyCoreClient
 from personal_notifier.config import Settings
 from personal_notifier.feeds import FeedClient, validate_page
 from personal_notifier.pacing import ChatPacer
-from personal_notifier.schedule import reminders_allowed
 from personal_notifier.store import BotStore
 
 log = logging.getLogger(__name__)
@@ -272,7 +271,7 @@ class Notifier:
             page = validate_page(await client.read(cursor), cursor)
             with self.store.db:
                 for event in page["events"]:
-                    if source.queue and not event["type"].endswith((".queue.summary", ".queue.reminder")):
+                    if source.queue and not event["type"].endswith(".queue.summary"):
                         continue
                     self.store.db.execute(
                         "INSERT OR IGNORE INTO feed_notices(source,event_id,body,url,priority,created,presentation,event_type) VALUES(?,?,?,?,?,?,?,?)",
@@ -311,9 +310,8 @@ class Notifier:
         queue_sources = {source.name for source in self.settings.sources if source.queue}
         for row in rows:
             if row["source"] in queue_sources:
-                if (
-                    row["body"].startswith(("🏠 Housing reminder", "Housing reminder"))
-                    and not reminders_allowed()
+                if row["event_type"].endswith(".queue.reminder") or row["body"].startswith(
+                    ("🏠 Housing reminder", "Housing reminder")
                 ):
                     with self.store.db:
                         self.store.db.execute(
@@ -325,11 +323,6 @@ class Notifier:
                 pending = False
                 owner_message = None
                 for recipient in self.audience.recipients(row["event_id"]):
-                    # Producer reminders are for the owner's queue. Guests have their own clock.
-                    if recipient != self.settings.allowed_user_id and row["body"].startswith(
-                        ("🏠 Housing reminder", "Housing reminder")
-                    ):
-                        continue
                     receipt = self.store.one(
                         "SELECT telegram_id FROM housing_receipts WHERE source=? AND event_id=? AND recipient=?",
                         (row["source"], row["event_id"], recipient),
@@ -431,39 +424,12 @@ class Notifier:
             "Housing → Favorites opens saved listings. Unfavoriting keeps the current card for undo.\n"
             "↕️ Sort cycles Published / Updated / Rent ↑. The source button opens the ad.\n"
             "Back returns one screen; 🏠 Deck opens the main menu.\n\n"
-            "Your Viewed and Favorites are personal. Scans: 10 min; notifications: 15 min; queue reminders: hourly, 12:00–00:00 Warsaw."
+            "Your Viewed and Favorites are personal. Scans: 10 min; notifications: 15 min; only new matching apartments trigger notifications."
         )
         sent = await self.review.summary(source, text, recipient)
         self.store.set(key, str(sent.message_id))
         log.info("housing.guide_sent recipient=%s message=%s", recipient, sent.message_id)
         return True
-
-    async def guest_reminders(self, source):
-        if not reminders_allowed():
-            return
-        if self.store.one(
-            "SELECT 1 FROM feed_notices WHERE source=? AND telegram_id IS NULL AND suppressed=0",
-            (source.name,),
-        ):
-            return
-        for member in self.audience.members():
-            recipient = member["user_id"]
-            key = f"housing_notice:{source.name}:{recipient}"
-            previous = float(self.store.get(key, str(member["joined_at"])))
-            if time.time() - previous < 3600:
-                continue
-            try:
-                page = await self.feeds[source.name].queue_request(actor=str(recipient))
-                if page["total"]:
-                    sent = await self.review.summary(
-                        source.name, f"🏠 Housing reminder\n{page['total']} waiting in your queue", recipient
-                    )
-                    if sent is None:
-                        continue
-                    self.store.set(key, str(time.time()))
-                    log.info("housing.reminder recipient=%s total=%s", recipient, page["total"])
-            except Exception as error:
-                log.warning("housing.reminder_failed recipient=%s error=%s", recipient, type(error).__name__)
 
     async def pause(self, seconds):
         try:
@@ -490,8 +456,6 @@ class Notifier:
             try:
                 log.info("feed.poll_started source=%s", source.name)
                 await self.collect_feed(source)
-                if source.queue:
-                    await self.guest_reminders(source)
                 self.store.set("source_success:" + source.name, str(time.time()))
             except Exception as error:
                 log.warning("Source %s will retry: %s", source.name, type(error).__name__)

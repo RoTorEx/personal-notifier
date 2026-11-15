@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Notify all housing recipients only for new matching apartments; remove participant queue reminders and reminder-window scheduling.
+- Skip legacy reminder capture and suppress already-pending reminders at every hour without touching review state or real delivery receipts.
+
 ## [0.1.38] - 2026-11-14
 
 - Validate every new alert against its exact source digest and personal queue; suppress obsolete, filtered or already-viewed discoveries even when older apartments remain.

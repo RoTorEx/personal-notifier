@@ -147,9 +147,9 @@ async def test_owner_and_partner_counts_are_live_at_delivery_for_alerts_and_remi
         return result
 
     pair.feeds["housing"].queue_request = page
-    owner = await pair.review.summary("housing", "🏠 Housing reminder\n41 waiting in your queue", 42)
+    owner = await pair.review.summary("housing", "🏠 Housing alert\n2 new · 41 in queue", 42, event_id=1)
     partner = await pair.review.summary("housing", "🏠 Housing alert\n2 new · 41 in queue", 99, event_id=1)
-    assert "10 waiting in your queue" in owner.text
+    assert "2 new · 10 in queue" in owner.text
     assert "2 new · 6 in queue" in partner.text
     totals[""] = 3
     owner = await pair.review.summary("housing", "🏠 Housing alert\n2 new · 41 in queue", 42, event_id=1)

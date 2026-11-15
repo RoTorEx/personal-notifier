@@ -75,11 +75,12 @@ API markup confirms server state but not physical client rendering.
 
 ## Quiet notifications and persistence
 
-Housing Watch scans every 600 seconds on ten-minute wall-clock boundaries and owns digest/reminder timing. Queue-mode
+Housing Watch scans every 600 seconds on ten-minute wall-clock boundaries and owns digest timing. Queue-mode
 capture advances past legacy individual housing.listing.* events without pushing
-them. Only *.queue.summary and *.queue.reminder enter delivery. New findings produce
+them. Only *.queue.summary enters delivery; legacy *.queue.reminder events advance
+the cursor without being captured. New findings produce
 one Housing alert count with View queue. Both owners and participants re-read the
-current personal unviewed count immediately before sending every alert/reminder;
+current personal unviewed count immediately before sending each new alert;
 producer event text is a historical snapshot and must never supply that number.
 For every new-finding alert, pass the source event ID to /queue and replace both
 new and remaining counts from that atomic response. Suppress it when new_total=0,
@@ -88,15 +89,12 @@ text or total. Retain event_type during capture; legacy alert headings remain
 recognized. A personal empty queue or no live digest members skips the event
 durably in housing_skips, without fake
 Telegram receipts or blocking another recipient. Counts describe the queue at send
-time; an old notification is not a continuously updating counter. Zero-found scans are silent. A nonempty
-queue may produce Housing reminder after 3,600 seconds since the previous notice;
-empty queues never remind. Send reminders only from 12:00 inclusive until 00:00
-exclusive in Europe/Warsaw, using the event date's CET/CEST offset. New-finding
-alerts remain unrestricted. The sender checks the actual delivery window even for
-previously queued producer reminders: mark excluded notices suppressed, retaining
-history without fabricating a Telegram receipt or replaying a backlog at noon.
-Each invited participant has an independent hourly
-reminder clock and personal queue count; owner producer reminders do not fan out. Browsing uses current old-plus-new unviewed entries.
+time; an old notification is not a continuously updating counter. Zero-found scans are silent. Existing queue entries never trigger automatic
+reminders, at any time of day, for either the owner or participants. Reminder
+capture and guest generation are retired. Suppress already-pending reminders by
+type or legacy heading without generating fake delivery receipts or altering the
+queue. Direct menu/queue interactions and the requested once-only guide remain
+available. Browsing uses current old-plus-new unviewed entries.
 Pure source updates refresh cards without creating new-identity notifications.
 
 Generic non-queue feeds retain their existing text/photo notifications. Vibecoding

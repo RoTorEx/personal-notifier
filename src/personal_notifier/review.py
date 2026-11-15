@@ -64,6 +64,8 @@ class ReviewUI:
         )
 
     async def summary(self, source, text, recipient=None, event_id=None, new_listing=None):
+        if text.startswith(("🏠 Housing reminder", "Housing reminder")):
+            return None
         import re
 
         # Producer event text is a historical scan snapshot, for either recipient.
