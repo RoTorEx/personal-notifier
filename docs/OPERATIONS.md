@@ -106,3 +106,23 @@ or an existing subscription unchanged. Exercise Topics and Users views plus an
 owner disable/reenable cycle against deployed handlers; use real Telegram returned
 markup without claiming a human clicked. Preserve source service state and Core
 identity. Rollback requires stopping the current sender and reconciling receipts.
+
+### Verified 0.2.0 subscription rollout
+
+Published/deployed revision 0c3d6ef1a3c605422a293717cfd3e51381a1963c passed
+206 tests, Ruff, mypy and both GitHub checks. The installed image is
+personal-notifier:0.2.0. Direct deployed handler/API verification exercised
+Management, Topics, Housing subscribers, Users and Ira's subscription view,
+returning to the owner deck at Telegram message 167. Real numeric identity,
+legacy member bindings, delivery/guide receipts and Ira's Housing-only scope
+were verified. These observations do not establish physical client interaction.
+The source event watermark read was 134 without advancing capture cursors.
+
+Run full-handler verification in a separately bounded ephemeral container,
+without GetUpdates, rather than importing a second application into the 256 MiB
+production bot container. The latter caused memory pressure during this rollout;
+its verification process was terminated and production health recovered without
+changing resource limits. The isolated verification succeeded and was removed.
+Core identity/start time and Housing Watch service remained unchanged by the
+Notifier rollout. The separately requested one-off queue clear subsequently
+restarted Housing Watch and the notifier only; no Core restart occurred.
