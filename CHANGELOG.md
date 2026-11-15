@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-16
+
 - Move technical Vibecoding entry points to Node Radar; disabling Core also stops pending legacy sends without deleting their receipts. Remove the Core socket mount from the product bot.
 
 ## [0.4.1] - 2026-11-15
