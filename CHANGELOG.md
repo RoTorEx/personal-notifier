@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-16
+
 - Show up to ten source photos in one editable review message using Telegram slideshows; keep existing navigation and fall back to one photo on explicit media rejection.
 - Invalidate old review cards during the authorized all-user Queue/Favorites reset without changing subscriptions, climate state or technical receipts.
 
