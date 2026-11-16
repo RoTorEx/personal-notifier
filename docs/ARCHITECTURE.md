@@ -57,3 +57,35 @@ both bots' genuine receipts before enabling an old sender or restoring producer
 state. A lost Telegram acceptance/ack can repeat a delivery; exactly-once is not
 claimed. Never restart Core, trigger backup/calendar jobs, fabricate a climate
 reading or reenable disabled monitoring to verify these flows.
+
+## Outdoor rollout
+
+Personal Notifier 0.6.0 and Web Watch 0.3.2 add Market → Outdoor →
+Queue/Favorites. The owner-supplied brand requirements explicitly mean Rab and
+Stellar Equipment. The complete producer watchlist is owned by Web Watch
+business/outdoor.md; unavailable reel content is not represented as inspected.
+
+An isolated bounded container exercised the released ReviewUI against real
+source DTOs and a copied BotStore with fake Telegram: Market entry, queue/photo,
+favorites, Viewed, favorite removal and undo across restart, Published/Updated/
+price sorting, arrows, empty state, Back/Deck and denial to an unsubscribed guest.
+The test sent no real Telegram messages and made no production review writes.
+The installed owner scope includes Outdoor; Ira retains Housing-only. Local
+Notifier checks passed 219 tests, Ruff and mypy. Installed source hashes match.
+Initial source inventories are quiet; new identities produce topic-specific
+digests, while source updates and old queues remain silent.
+
+The large national scan exposed a producer writer race and queue read latency.
+Web Watch 0.3.1 serialized writes and 0.3.2 indexed source date/price ordering;
+producer migration verified raw records, original review fields and receipts
+were preserved. Web Watch docs/DEPLOYMENT.md owns full-scan/load evidence and
+its resource/public-search limitations. Notifier recovery for Outdoor is
+/srv/personal-notifier/recovery/outdoor-0.6.0, retained until a later verified
+rollout explicitly retires it.
+
+The original local Radar checkout could not fast-forward because its unrelated
+uncommitted files would be overwritten. Those edits were preserved; release
+0.11.0 was built from the clean merged source. The task-owned clean checkout at
+~/construction_side/telegram-node-radar/notifier-release is intentionally retained
+as the verified source until the owner reconciles the original local edits and
+its upstream. It can then be removed. This does not affect the deployed release.

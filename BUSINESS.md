@@ -190,14 +190,14 @@ between observations. The sensor's own cadence bounds new measurement frequency.
 
 ## Interactive product connections
 
-Web Watch provides Housing, Astronomy and Digital pianos through one private API
+Web Watch provides Housing, Astronomy, Digital pianos and Outdoor through one private API
 and database. Each configured queue source selects its explicit product topic;
 missing topic retains legacy Housing compatibility. Check this topic in producer
 responses before admitting data, and read it again before product mutations so
 an older producer cannot silently treat a Market action as a Housing action.
 Feed cursors, subscriptions and recipient receipts remain source-specific.
 
-Home deck → Market → Astronomy/Digital pianos → Queue/Favorites uses exactly the
+Home deck → Market → Astronomy/Digital pianos/Outdoor → Queue/Favorites uses exactly the
 Housing collection interaction: same photos, Viewed, favorite undo, source link,
 public phone copy, Published/Updated/base-price sort, carousel and Back/Deck.
 Market sections inherit the subscribed topic, never another user's permissions.
