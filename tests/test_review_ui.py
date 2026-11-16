@@ -368,3 +368,47 @@ async def test_outdoor_uses_existing_market_collection_and_per_user_scope(app):
         assert "outdoor" not in app.review.sources
     finally:
         app.review.recipient.reset(ctx)
+
+
+@pytest.mark.asyncio
+async def test_gallery_is_one_editable_message_and_keeps_navigation(app):
+    from aiogram.methods import EditMessageText, SendRichMessage
+
+    photos = [f"https://ireland.apollo.olxcdn.com/{index}" for index in range(12)]
+    app.feeds["housing"].items[0]["presentation"]["photo_urls"] = photos
+    app.feeds["housing"].items[1]["presentation"]["photo_urls"] = photos[:2]
+    message = await app.review.browse("housing", "queue")
+    sent = next(call for call in app.bot.session.calls if isinstance(call, SendRichMessage))
+    assert sent.rich_message.html.count("<img ") == 10
+    assert "<tg-slideshow>" in sent.rich_message.html
+    assert sent.reply_markup and sent.chat_id == 42
+    await app.review.handle(callback(message, action(message, "➡️")))
+    edited = [call for call in app.bot.session.calls if isinstance(call, EditMessageText)][-1]
+    assert edited.message_id == message.message_id
+    assert edited.rich_message.html.count("<img ") == 2
+    assert not app.feeds["housing"].items[0]["viewed"]
+    before = len(app.bot.session.calls)
+    await app.review.handle(callback(message, action(message, "➡️"), owner=7))
+    assert len(app.bot.session.calls) == before
+
+
+@pytest.mark.asyncio
+async def test_explicit_gallery_rejection_falls_back_to_one_photo(app):
+    from aiogram.exceptions import TelegramBadRequest
+    from aiogram.methods import SendRichMessage
+
+    original = app.bot.session.make_request
+
+    async def rejected(bot, method, timeout=None):
+        if isinstance(method, SendRichMessage):
+            raise TelegramBadRequest(method, "Bad Request: failed to fetch gallery photo")
+        return await original(bot, method, timeout)
+
+    app.bot.session.make_request = rejected
+    app.feeds["housing"].items[0]["presentation"]["photo_urls"] = [
+        "https://ireland.apollo.olxcdn.com/one",
+        "https://ireland.apollo.olxcdn.com/two",
+    ]
+    message = await app.review.browse("housing", "queue")
+    assert message.photo and message.reply_markup
+    assert len(app.bot.session.messages) == 1

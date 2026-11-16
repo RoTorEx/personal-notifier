@@ -13,6 +13,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputMediaPhoto,
+    InputRichMessage,
     Message,
 )
 
@@ -259,11 +260,40 @@ class ReviewUI:
                 )
         return sent
 
-    async def display(self, html, photo, markup, message=None):
+    async def display(self, html, photo, markup, message=None, photos=None):
         bot = self.app.bot
         owner = self.recipient.get()
         async with self.app.send_lock:
             sent = None
+            photos = list(dict.fromkeys(photos or ([photo] if photo else [])))[:10]
+            if len(photos) > 1 or (photo and message and message.rich_message):
+                from html import escape
+
+                gallery = "".join(f'<img src="{escape(url, quote=True)}"/>' for url in photos)
+                if len(photos) > 1:
+                    gallery = "<tg-slideshow>" + gallery + "</tg-slideshow>"
+                rich = InputRichMessage(
+                    html=gallery
+                    + "".join("<p>" + part.replace("\n", "<br/>") + "</p>" for part in html.split("\n\n"))
+                )
+                try:
+                    if message and not message.photo:
+                        return await bot.edit_message_text(
+                            chat_id=owner,
+                            message_id=message.message_id,
+                            rich_message=rich,
+                            reply_markup=markup,
+                        )
+                    sent = await bot.send_rich_message(
+                        owner, rich_message=rich, reply_markup=markup, disable_notification=True
+                    )
+                    if message:
+                        await bot.delete_message(owner, message.message_id)
+                    return sent
+                except TelegramBadRequest as error:
+                    if "message is not modified" in str(error).lower():
+                        return message
+                    log.warning("review.gallery_rejected recipient=%s", owner)
             if photo:
                 try:
                     if message:
@@ -334,10 +364,12 @@ class ReviewUI:
         token = uuid.uuid4().hex[:16]
         rows = []
         photo = None
+        photos = None
         if item:
             card = item["presentation"]
             html = card["html"]
             photo = card.get("photo_url")
+            photos = card.get("photo_urls")
             rows.append(
                 [
                     button("↩ Unview" if item["viewed"] else "✓ Viewed", f"view:{token}:viewed"),
@@ -398,7 +430,9 @@ class ReviewUI:
         if nav:
             rows.append(nav)
         rows.append([button("⬅️ Back", f"back:{source}:housing"), button("🏠 Deck", "home")])
-        sent = await self.display(html, photo, InlineKeyboardMarkup(inline_keyboard=rows), message)
+        sent = await self.display(
+            html, photo, InlineKeyboardMarkup(inline_keyboard=rows), message, photos=photos
+        )
         if not hasattr(sent, "message_id"):
             raise ValueError("Missing review message identity")
         with self.app.store.db:
@@ -582,7 +616,17 @@ class ReviewUI:
                 len(parts) != 3
                 or parts[0] != "view"
                 or parts[2]
-                not in ("prev", "next", "viewed", "favorite", "favorites", "queue", "position", "sort")
+                not in (
+                    "prev",
+                    "next",
+                    "viewed",
+                    "favorite",
+                    "favorites",
+                    "queue",
+                    "position",
+                    "sort",
+                    "photos",
+                )
             ):
                 return
             view = self.app.store.one(

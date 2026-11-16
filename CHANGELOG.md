@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Show up to ten source photos in one editable review message using Telegram slideshows; keep existing navigation and fall back to one photo on explicit media rejection.
+- Invalidate old review cards during the authorized all-user Queue/Favorites reset without changing subscriptions, climate state or technical receipts.
+
 ## [0.6.0] - 2026-11-16
 
 - Add the independently subscribed Outdoor Market collection with the existing Queue/Favorites and carousel interface. Enroll only the owner once, preserve opt-out on restart and retain existing Management callback indices.

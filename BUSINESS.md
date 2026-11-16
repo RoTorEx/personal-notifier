@@ -214,3 +214,14 @@ once; invited housing participants retain their scope. Respect an owner's later
 opt-out on restart. Append the new topic after existing topics to preserve numeric
 management callback identities. Photo cards, source links, Viewed, undoable
 favorite, sort, carousel and Back/Deck reuse the existing implementation.
+
+## Single-message photo galleries
+
+Review cards use one Telegram rich message with a slideshow of up to ten distinct
+source photos, the existing description/technical footer and inline controls.
+Edit that same message while moving through the queue, sorting or changing flags.
+A single-photo listing keeps the single-photo layout; when already in a rich
+card, retain its message identity for a one-photo successor. Menus remain text.
+An explicit gallery rejection falls back to one photo; ambiguous network failures
+are not retried as another send. No automatic separate albums or Photos button.
+The capability uses aiogram's installed typed Bot API rich-message support.

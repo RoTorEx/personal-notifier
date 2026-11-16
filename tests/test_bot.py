@@ -16,6 +16,7 @@ from aiogram.methods import (
     SendDocument,
     SendMessage,
     SendPhoto,
+    SendRichMessage,
 )
 from aiogram.types import Animation, Chat, Document, Message, PhotoSize, User
 from conftest import settle
@@ -41,6 +42,7 @@ class TelegramFake(BaseSession):
         if isinstance(
             method,
             (
+                SendRichMessage,
                 SendMessage,
                 EditMessageText,
                 SendDocument,
@@ -50,7 +52,7 @@ class TelegramFake(BaseSession):
                 EditMessageCaption,
             ),
         ):
-            if isinstance(method, (SendMessage, SendDocument, SendPhoto, SendAnimation)):
+            if isinstance(method, (SendRichMessage, SendMessage, SendDocument, SendPhoto, SendAnimation)):
                 self.counter += 1
             media = getattr(method, "media", None)
             kind = getattr(media, "type", None) or (
@@ -81,6 +83,8 @@ class TelegramFake(BaseSession):
                 fields["animation"] = Animation(
                     file_id="animation", file_unique_id="animation", width=100, height=100, duration=1
                 )
+            if getattr(method, "rich_message", None):
+                fields["rich_message"] = {"blocks": []}
             result = Message(
                 **fields,
                 caption=getattr(method, "caption", None) or getattr(media, "caption", None),
