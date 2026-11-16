@@ -89,3 +89,28 @@ uncommitted files would be overwritten. Those edits were preserved; release
 ~/construction_side/telegram-node-radar/notifier-release is intentionally retained
 as the verified source until the owner reconciles the original local edits and
 its upstream. It can then be removed. This does not affect the deployed release.
+
+## Verified single-message galleries and reset
+
+Personal Notifier 0.6.1 is installed with Web Watch 0.3.3. A temporary silent
+owner-only Telegram call used seven real source photos in one rich slideshow
+message, edited the same message ID, retained inline controls and then deleted
+the preview. Review tests cover a ten-photo cap, in-place carousel navigation,
+unsubscribed-user denial and explicit rejection falling back to one photo.
+All 221 tests, Ruff, mypy and both release CI runs passed. Installed source
+hashes match the released source. This verifies API acceptance; no physical
+client screenshot is claimed.
+
+The owner confirmed clearing Queue and Favorites for both registered people.
+All sixteen live actor/topic/mode views returned zero. Existing source records,
+subscriptions, climate state and genuine technical receipts were retained; saved
+review screens were invalidated. Producer reset semantics and geographic/source
+limitations are owned by Web Watch BUSINESS.md and docs/DEPLOYMENT.md. Eight
+Allegro searches remained rate limited in preflight; no successful complete new
+inventory is claimed.
+
+Notifier owns /srv/personal-notifier/recovery/gallery-reset-0.6.1 and Web Watch
+owns /srv/web-watch/recovery/scope-reset-0.3.3. Retain until a later verified
+rollout explicitly retires them; reconcile current identities and receipts
+before any restoration. No temporary gallery, database copy or probe process
+is needed after verification.
