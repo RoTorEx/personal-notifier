@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-18
+
 - Accept and validate the producer's bounded photo_urls gallery in event pages and queue responses, fixing stalled feed cursors and missing notifications.
 - Request queue-summary-only event pages so source-update traffic cannot delay new-finding alerts.
 - Add a real Unix HTTP capture, delivery, gallery browse and restart regression test; reject malformed galleries without advancing cursors.
