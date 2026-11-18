@@ -134,13 +134,14 @@ def test_invalid_gallery_cannot_advance_cursor(photos):
         validate_page(value, 0)
 
 
-async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps_receipt(tmp_path):
+@pytest.mark.parametrize("topic", ["market.digital_pianos", "market.keyboards"])
+async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps_receipt(tmp_path, topic):
     from aiogram.methods import SendRichMessage
     from aiohttp import web
 
     socket_dir = tempfile.TemporaryDirectory(prefix="pn-", dir="/tmp")
     socket = Path(socket_dir.name) / "source.sock"
-    source = FeedSource("pianos", socket, queue=True, topic="market.digital_pianos")
+    source = FeedSource("pianos", socket, queue=True, topic=topic)
     settings = Settings(
         tmp_path / "state",
         tmp_path / "run",
@@ -165,7 +166,7 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
     }
     discovered = {
         "id": 1,
-        "type": "market.digital_pianos.listing.discovered",
+        "type": topic + ".listing.discovered",
         "title": "Piano",
         "text": "Piano found",
         "url": card["url"],
@@ -174,7 +175,7 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
     }
     summary = {
         "id": 2,
-        "type": "market.digital_pianos.queue.summary",
+        "type": topic + ".queue.summary",
         "title": "🎹 Digital pianos alert",
         "text": "1 new · 1 in queue",
         "url": "",
@@ -225,6 +226,14 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
         await app.deliver()
         assert len([call for call in bot.session.calls if isinstance(call, SendMessage)]) == 1
         assert app.store.one("SELECT telegram_id FROM housing_receipts")["telegram_id"]
+        await app.review.market()
+        market_message = bot.session.calls[-1]
+        buttons = [b.text for row in market_message.reply_markup.inline_keyboard for b in row]
+        assert ("⌨️ Keyboards" if topic == "market.keyboards" else "🎹 Digital pianos") in buttons
+        await app.review.housing("pianos")
+        section_message = bot.session.calls[-1]
+        section_buttons = [b.text for row in section_message.reply_markup.inline_keyboard for b in row]
+        assert "📋 Queue" in section_buttons and "⭐ Favorites" in section_buttons
         await app.review.browse("pianos", "queue")
         assert len([call for call in bot.session.calls if isinstance(call, SendRichMessage)]) == 1
         assert any(query.get("event_id") == "2" for query in calls)
@@ -232,7 +241,7 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
         app.store.close()
         app = Notifier(settings, bot=bot)
         await app.deliver()
-        assert len([call for call in bot.session.calls if isinstance(call, SendMessage)]) == 1
+        assert len([call for call in bot.session.calls if isinstance(call, SendMessage)]) == 3
     finally:
         await app.feeds["pianos"].close()
         app.store.close()

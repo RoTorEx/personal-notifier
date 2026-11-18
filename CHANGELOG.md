@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add the owner-only Keyboards Market connection using the existing Queue/Favorites/Viewed, gallery, sorting and subscription controls. Preserve prior topic scopes and opt-outs.
+
 ## [0.6.3] - 2026-11-18
 
 - Persist a one-hour retry delay for Telegram-forbidden queue deliveries, retaining owed recipient receipts and successful recipients' acknowledgements.

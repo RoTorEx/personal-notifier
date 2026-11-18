@@ -5,7 +5,8 @@ TOPICS = {
     "market.astronomy": "🔭 Astronomy",
     "market.digital_pianos": "🎹 Digital pianos",
     "home.temperature": "🌡 Home temperature",
-    "market.outdoor": "🏕 Outdoor",  # Append to preserve existing management callback indices.
+    "market.outdoor": "🏕 Outdoor",
+    "market.keyboards": "⌨️ Keyboards",  # Append to preserve management callback indices.
 }
 
 
@@ -37,13 +38,14 @@ class Subscriptions:
                     "INSERT OR REPLACE INTO meta(key,value) VALUES('subscriptions_migrated:v1','1')"
                 )
 
-            if not store.get("subscriptions_added:market.outdoor"):
-                store.db.execute(
-                    "INSERT OR IGNORE INTO product_subscriptions VALUES(?,?,1)", (owner, "market.outdoor")
-                )
-                store.db.execute(
-                    "INSERT OR REPLACE INTO meta VALUES('subscriptions_added:market.outdoor','1')"
-                )
+            for topic in ("market.outdoor", "market.keyboards"):
+                if not store.get("subscriptions_added:" + topic):
+                    store.db.execute(
+                        "INSERT OR IGNORE INTO product_subscriptions VALUES(?,?,1)", (owner, topic)
+                    )
+                    store.db.execute(
+                        "INSERT OR REPLACE INTO meta VALUES(?, '1')", ("subscriptions_added:" + topic,)
+                    )
 
     def enroll(self, user_id, label, legacy=False):
         self.store.db.execute("INSERT OR IGNORE INTO product_users VALUES(?,?)", (user_id, label))

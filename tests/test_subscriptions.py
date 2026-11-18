@@ -104,3 +104,15 @@ async def test_outdoor_enrollment_is_owner_only_and_restart_preserves_opt_out(pa
     resumed = Subscriptions(pair.store, 42)
     assert not resumed.allowed(42, "market.outdoor")
     assert resumed.allowed(99, "housing")
+
+
+async def test_keyboard_subscription_is_owner_only_and_does_not_restore_opt_out(pair):
+    app = pair
+    from personal_notifier.subscriptions import Subscriptions
+
+    subs = app.audience.subscriptions
+    assert subs.allowed(42, "market.keyboards")
+    assert not subs.allowed(99, "market.keyboards")
+    subs.set(42, 42, "market.keyboards", False)
+    resumed = Subscriptions(app.store, 42)
+    assert not resumed.allowed(42, "market.keyboards")

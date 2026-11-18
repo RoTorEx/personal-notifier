@@ -38,3 +38,10 @@ queue = true # Owner-only review API; Core remains read-only.
 # poll_seconds = 900
 # queue = true
 # topic = "market.outdoor"
+
+# [[sources]]
+# name = "keyboards"
+# socket = "/run/web-watch/api.sock"
+# poll_seconds = 900
+# queue = true
+# topic = "market.keyboards"

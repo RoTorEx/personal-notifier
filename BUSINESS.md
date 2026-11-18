@@ -139,7 +139,7 @@ Never log bot tokens, phone numbers, listing descriptions or incoming message te
 
 Personal Notifier owns product_users, product_subscriptions and per-source
 subscription_watermarks. Stable topics are housing, market.astronomy,
-market.digital_pianos, home.temperature and market.outdoor. Housing, Market and optional Home climate connections are supported; the
+market.digital_pianos, home.temperature, market.outdoor and market.keyboards. Housing, Market and optional Home climate connections are supported; the
 Vibecoding-to-Radar handover preserves the prior cursor, work counters, pending
 outcome identities and genuine receipts in a protected one-off export.
 Existing pinned members migrate to Housing only. The owner starts subscribed to
@@ -247,3 +247,12 @@ the delivery batch limit, and preserve successful recipients' receipts. This
 prevents a blocked participant from producing a per-second retry loop or starving
 new owner notices. A different transient error retains the existing retry path;
 subscriptions are never silently disabled and no acceptance receipt is invented.
+
+## Keyboard connection
+
+Market → ⌨️ Keyboards → Queue/Favorites reuses the same review UI, gallery,
+Viewed, favorite undo, sort, source link and Back/Deck transitions. Web Watch owns
+the nationwide Lofree watchlist and advisory targets in business/keyboards.md.
+Enroll the owner once; preserve later opt-out and every other subscription.
+Housing guests are not enrolled in Keyboards. Append its management topic after
+all existing topics to keep persisted callback indices stable.
