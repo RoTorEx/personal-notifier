@@ -49,3 +49,25 @@ For a verified delivery outage, recover genuinely unviewed post-reset identities
 through one source-owned catch-up digest per topic. Supersede undelivered old
 summaries only after protected snapshots and receipt reconciliation. Never invent
 Telegram IDs, reset favorites or replay every historical alert as a test.
+
+## Keyboards rollout
+
+Production 0.6.4 connects `keyboards` to `market.keyboards` on the existing
+`/run/web-watch/api.sock`, polling every 900 seconds. The source is Web Watch
+0.3.8. The owner is enrolled once; Ira remains Housing-only and opt-outs survive
+restart. Market → Keyboards → Queue/Favorites uses the shared rich-message cards.
+Source targets/model rules live in Web Watch business/keyboards.md.
+
+The live FeedClient and menus/cards were exercised with isolated state and a fake
+Telegram transport, retaining the real read-only source socket. No extra poller
+or production test message was sent. Initial keyboard source events and consumer
+notices were zero; existing receipts and subscriptions were reconciled.
+Installed source hashes matched the tagged releases and both CI checks passed.
+
+Recovery belongs to Notifier at `/srv/personal-notifier/recovery/keyboards-0.6.4`
+and `/srv/personal-notifier/recovery/keyboard-wording-source-0.3.8`. The source
+owns its snapshots and the full incident report under Web Watch docs/incidents.
+Retain until explicitly retired by a later verified rollout; reconcile current
+cursors and receipts before restoration. Telegram currently denies Ira delivery
+because the bot was blocked; preserve the subscription and due retry rather than
+inventing acceptance or repeatedly notifying the owner about this condition.
