@@ -301,3 +301,45 @@ async def test_market_uses_same_collection_ui_and_scopes_as_housing(pair):
     before = len(pair.feeds["astronomy"].calls)
     await pair.handle(callback(card, "browse:astronomy:queue", owner=99))
     assert len(pair.feeds["astronomy"].calls) == before
+
+
+async def test_forbidden_recipient_is_deferred_without_starving_owner_or_fake_receipt(pair):
+    import time
+
+    from aiogram.exceptions import TelegramForbiddenError
+
+    await pair.handle(start())
+    original = pair.review.summary
+    blocked = True
+    attempts = []
+
+    async def send(source, text, recipient=None, event_id=None, new_listing=None):
+        attempts.append(recipient)
+        if recipient == 99 and blocked:
+            raise TelegramForbiddenError(
+                SendMessage(chat_id=99, text=text), "Forbidden: bot was blocked by the user"
+            )
+        return await original(source, text, recipient, event_id=event_id, new_listing=new_listing)
+
+    pair.review.summary = send
+    with pair.store.db:
+        for event in range(1, 12):
+            pair.store.db.execute(
+                "INSERT INTO feed_notices(source,event_id,body,url,priority,created) VALUES('housing',?,'Housing alert','',2,?)",
+                (event, event),
+            )
+    await pair.deliver()
+    await pair.deliver()
+    assert len(pair.store.rows("SELECT * FROM housing_receipts WHERE recipient=42")) == 11
+    assert not pair.store.rows("SELECT * FROM housing_receipts WHERE recipient=99")
+    assert attempts.count(99) == 11
+    assert pair.store.one("SELECT MIN(retry_at) AS retry_at FROM feed_notices")["retry_at"] > time.time()
+    before = len(attempts)
+    await pair.deliver()
+    assert len(attempts) == before
+    blocked = False
+    with pair.store.db:
+        pair.store.db.execute("UPDATE feed_notices SET retry_at=0 WHERE event_id=1")
+    await pair.deliver()
+    assert len(pair.store.rows("SELECT * FROM housing_receipts WHERE recipient=42")) == 11
+    assert len(pair.store.rows("SELECT * FROM housing_receipts WHERE recipient=99")) == 1

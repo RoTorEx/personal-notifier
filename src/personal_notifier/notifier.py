@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import (
     BotCommand,
     BotCommandScopeChat,
@@ -100,6 +100,9 @@ class Notifier:
                 self.store.db.execute(
                     "ALTER TABLE feed_notices ADD COLUMN suppressed INTEGER NOT NULL DEFAULT 0"
                 )
+        if "retry_at" not in columns:
+            with self.store.db:
+                self.store.db.execute("ALTER TABLE feed_notices ADD COLUMN retry_at REAL NOT NULL DEFAULT 0")
         if not self.store.get("notifier_since"):
             self.store.set("notifier_since", str(time.time()))
         from personal_notifier.audience import HousingAudience
@@ -331,10 +334,10 @@ class Notifier:
             FROM notifier_notices WHERE telegram_id IS NULL AND ?
             UNION ALL
             SELECT source,event_id,body,url,NULL AS session_id,priority,created,presentation,event_type
-            FROM feed_notices WHERE telegram_id IS NULL AND suppressed=0
+            FROM feed_notices WHERE telegram_id IS NULL AND suppressed=0 AND retry_at<=?
             ORDER BY priority DESC,created,event_id LIMIT 10
         """,
-            (int(self.settings.core_enabled),),
+            (int(self.settings.core_enabled), time.time()),
         )
         queue_sources = {source.name: source.topic for source in self.settings.sources if source.queue}
         for row in rows:
@@ -350,6 +353,7 @@ class Notifier:
                     log.info("housing.reminder_suppressed source=%s event=%s", row["source"], row["event_id"])
                     continue
                 pending = False
+                blocked_only = True
                 owner_message = None
                 for recipient in self.audience.recipients(
                     row["event_id"], row["source"], queue_sources[row["source"]]
@@ -406,8 +410,20 @@ class Notifier:
                             owner_message = sent.message_id
                     except Exception as error:
                         pending = True
+                        blocked_only = blocked_only and isinstance(error, TelegramForbiddenError)
                         log.warning(
-                            "housing.delivery_failed recipient=%s error=%s", recipient, type(error).__name__
+                            "housing.delivery_failed recipient=%s error=%s reason=%s",
+                            recipient,
+                            type(error).__name__,
+                            getattr(error, "message", type(error).__name__),
+                        )
+                if pending and blocked_only:
+                    # Keep the owed recipient receipt pending, without a hot loop
+                    # or starving newer notices behind ten blocked old rows.
+                    with self.store.db:
+                        self.store.db.execute(
+                            "UPDATE feed_notices SET retry_at=? WHERE source=? AND event_id=?",
+                            (time.time() + 3600, row["source"], row["event_id"]),
                         )
                 if not pending:
                     with self.store.db:

@@ -240,3 +240,10 @@ the real FeedClient over Unix HTTP through capture, notice validation, a genuine
 transport receipt and gallery browsing; retain no-repeat behavior on restart.
 Production verification must observe source event, consumer cursor, notice and
 recipient receipt, rather than infer delivery from running processes or GET 200.
+
+Telegram access denials retain the undelivered recipient and retry the notice
+after 3,600 seconds. Persist this retry_at deadline, select only due rows before
+the delivery batch limit, and preserve successful recipients' receipts. This
+prevents a blocked participant from producing a per-second retry loop or starving
+new owner notices. A different transient error retains the existing retry path;
+subscriptions are never silently disabled and no acceptance receipt is invented.

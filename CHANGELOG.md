@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Persist a one-hour retry delay for Telegram-forbidden queue deliveries, retaining owed recipient receipts and successful recipients' acknowledgements.
+- Keep blocked old notices out of ready batches so they cannot starve newer deliveries, and log Telegram's denial reason.
+
 ## [0.6.2] - 2026-11-18
 
 - Accept and validate the producer's bounded photo_urls gallery in event pages and queue responses, fixing stalled feed cursors and missing notifications.
