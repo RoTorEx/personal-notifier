@@ -225,3 +225,18 @@ card, retain its message identity for a one-photo successor. Menus remain text.
 An explicit gallery rejection falls back to one photo; ambiguous network failures
 are not retried as another send. No automatic separate albums or Photos button.
 The capability uses aiogram's installed typed Bot API rich-message support.
+
+## Producer contract and notification delivery verification
+
+The consumer validates optional photo_urls as a JSON list of at most ten unique
+HTTPS image URLs, alongside the legacy photo_url. The same presentation contract
+applies to event pages and queue cards. A valid gallery must not prevent cursor
+progress; invalid input must not advance it. Queue consumers request
+/events?queue_only=1 to read summaries without a backlog of listing updates. An
+older producer may ignore this additive filter, so mixed pages remain supported.
+
+A sender or UI test using a stubbed queue does not verify this boundary. Exercise
+the real FeedClient over Unix HTTP through capture, notice validation, a genuine
+transport receipt and gallery browsing; retain no-repeat behavior on restart.
+Production verification must observe source event, consumer cursor, notice and
+recipient receipt, rather than infer delivery from running processes or GET 200.

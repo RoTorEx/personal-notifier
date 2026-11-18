@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- Accept and validate the producer's bounded photo_urls gallery in event pages and queue responses, fixing stalled feed cursors and missing notifications.
+- Request queue-summary-only event pages so source-update traffic cannot delay new-finding alerts.
+- Add a real Unix HTTP capture, delivery, gallery browse and restart regression test; reject malformed galleries without advancing cursors.
+
 ## [0.6.1] - 2026-11-16
 
 - Show up to ten source photos in one editable review message using Telegram slideshows; keep existing navigation and fall back to one photo on explicit media rejection.

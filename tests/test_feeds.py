@@ -1,4 +1,6 @@
 import asyncio
+import tempfile
+from pathlib import Path
 
 import pytest
 from aiogram import Bot
@@ -107,3 +109,133 @@ async def test_delivery_continues_when_core_is_unavailable(tmp_path):
         await asyncio.gather(core, delivery)
         app.store.close()
         await bot.session.close()
+
+
+@pytest.mark.parametrize(
+    "photos",
+    [
+        ["http://example.org/a"],
+        ["https://u:p@example.org/a"],
+        ["https://example.org/a"] * 2,
+        ["https://example.org/" + str(i) for i in range(11)],
+        [None],
+        "https://example.org/a",
+    ],
+)
+def test_invalid_gallery_cannot_advance_cursor(photos):
+    value = page()
+    value["events"][0]["presentation"] = {
+        "html": "A listing",
+        "photo_url": None,
+        "photo_urls": photos,
+        "copy_text": None,
+    }
+    with pytest.raises(ValueError):
+        validate_page(value, 0)
+
+
+async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps_receipt(tmp_path):
+    from aiogram.methods import SendRichMessage
+    from aiohttp import web
+
+    socket_dir = tempfile.TemporaryDirectory(prefix="pn-", dir="/tmp")
+    socket = Path(socket_dir.name) / "source.sock"
+    source = FeedSource("pianos", socket, queue=True, topic="market.digital_pianos")
+    settings = Settings(
+        tmp_path / "state",
+        tmp_path / "run",
+        tmp_path / "token",
+        allowed_user_id=42,
+        core_enabled=False,
+        sources=(source,),
+    )
+    photos = ["https://ireland.apollo.olxcdn.com/one", "https://ireland.apollo.olxcdn.com/two"]
+    card = {
+        "connector": "olx",
+        "id": "123",
+        "url": "https://www.olx.pl/d/oferta/piano",
+        "viewed": False,
+        "favorite": False,
+        "presentation": {
+            "html": "<b>Yamaha P-45</b>",
+            "photo_url": photos[0],
+            "photo_urls": photos,
+            "copy_text": None,
+        },
+    }
+    discovered = {
+        "id": 1,
+        "type": "market.digital_pianos.listing.discovered",
+        "title": "Piano",
+        "text": "Piano found",
+        "url": card["url"],
+        "priority": 0,
+        "presentation": card["presentation"],
+    }
+    summary = {
+        "id": 2,
+        "type": "market.digital_pianos.queue.summary",
+        "title": "🎹 Digital pianos alert",
+        "text": "1 new · 1 in queue",
+        "url": "",
+        "priority": 2,
+    }
+    calls = []
+
+    async def events(request):
+        # An older source ignores the optional filter; gallery validation must
+        # still accept its mixed event page before the cursor can be committed.
+        assert request.query["queue_only"] == "1"
+        after = int(request.query["after"])
+        rows = [event for event in (discovered, summary) if event["id"] > after]
+        return web.json_response(
+            {
+                "version": 1,
+                "topic": source.topic,
+                "events": rows,
+                "next_cursor": rows[-1]["id"] if rows else after,
+            }
+        )
+
+    async def queue(request):
+        calls.append(dict(request.query))
+        result = {
+            "topic": source.topic,
+            "total": 1,
+            "offset": 0,
+            "item": card,
+            "last_refresh": "2026-11-18T12:00:00Z",
+        }
+        if "event_id" in request.query:
+            result.update(event_id=int(request.query["event_id"]), new_total=1)
+        return web.json_response(result)
+
+    server = web.Application()
+    server.router.add_get("/events", events)
+    server.router.add_get("/queue", queue)
+    runner = web.AppRunner(server)
+    await runner.setup()
+    await web.UnixSite(runner, str(socket)).start()
+    bot = Bot("123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi", session=TelegramFake())
+    app = Notifier(settings, bot=bot)
+    try:
+        await app.collect_feed(source)
+        assert app.store.get("feed_cursor:pianos") == "2"
+        assert len(app.store.rows("SELECT * FROM feed_notices")) == 1
+        await app.deliver()
+        assert len([call for call in bot.session.calls if isinstance(call, SendMessage)]) == 1
+        assert app.store.one("SELECT telegram_id FROM housing_receipts")["telegram_id"]
+        await app.review.browse("pianos", "queue")
+        assert len([call for call in bot.session.calls if isinstance(call, SendRichMessage)]) == 1
+        assert any(query.get("event_id") == "2" for query in calls)
+        await app.feeds["pianos"].close()
+        app.store.close()
+        app = Notifier(settings, bot=bot)
+        await app.deliver()
+        assert len([call for call in bot.session.calls if isinstance(call, SendMessage)]) == 1
+    finally:
+        await app.feeds["pianos"].close()
+        app.store.close()
+        await bot.session.close()
+        await runner.cleanup()
+        socket_dir.cleanup()

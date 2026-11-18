@@ -35,3 +35,17 @@ until a later verified deployment explicitly retires them. Database restoration
 requires cursor and delivery-receipt reconciliation; restoring a file alone is
 not a safe rollback procedure. Activity goes to the existing container journal;
 never log listing descriptions, public phone numbers, tokens or incoming text.
+
+## Missing product notifications
+
+Compare source last-success timestamps and actual queue/event membership with
+feed_cursor:<source>, feed_notices and housing_receipts. Repeated ValueError at
+a fixed cursor can be a producer/consumer contract mismatch, including optional
+presentation fields. Exercise the installed FeedClient, not only an unvalidated
+HTTP GET or a stubbed ReviewUI. Distinguish a validated source read, a captured
+notice and a real Telegram receipt. Preserve review state and subscriptions.
+
+For a verified delivery outage, recover genuinely unviewed post-reset identities
+through one source-owned catch-up digest per topic. Supersede undelivered old
+summaries only after protected snapshots and receipt reconciliation. Never invent
+Telegram IDs, reset favorites or replay every historical alert as a test.

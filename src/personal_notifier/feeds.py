@@ -20,7 +20,7 @@ async def bounded_json(response, limit):
 
 
 def validate_presentation(value):
-    if not isinstance(value, dict) or set(value) - {"html", "photo_url", "copy_text"}:
+    if not isinstance(value, dict) or set(value) - {"html", "photo_url", "photo_urls", "copy_text"}:
         raise ValueError("Invalid presentation")
     body = value.get("html")
     if not isinstance(body, str) or not body or len(body) > 6000:
@@ -28,9 +28,13 @@ def validate_presentation(value):
     plain = unescape(re.sub(r"<[^>]*>", "", body))
     if len(plain.encode("utf-16-le")) // 2 > 1024:
         raise ValueError("Card exceeds photo caption limit")
-    photo = value.get("photo_url")
-    if photo is not None:
-        if not isinstance(photo, str) or len(photo) > 3000:
+    photos = value.get("photo_urls", [])
+    if not isinstance(photos, list) or len(photos) > 10 or any(not isinstance(url, str) for url in photos):
+        raise ValueError("Invalid photo gallery")
+    if len(set(photos)) != len(photos):
+        raise ValueError("Duplicate gallery photos")
+    for photo in photos + ([value["photo_url"]] if value.get("photo_url") is not None else []):
+        if not isinstance(photo, str) or not photo or len(photo) > 3000:
             raise ValueError("Invalid photo URL")
         parsed = urlsplit(photo)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
@@ -86,7 +90,7 @@ class FeedClient:
             params={
                 "after": cursor,
                 "limit": 100,
-                **({"topic": self.source.topic} if self.source.queue else {}),
+                **({"topic": self.source.topic, "queue_only": "1"} if self.source.queue else {}),
             },
         ) as response:
             response.raise_for_status()
