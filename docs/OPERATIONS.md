@@ -18,9 +18,8 @@ Telegram acceptance followed by a lost acknowledgement can cause a duplicate.
 Old Vibecoding callbacks/commands explain the new technical bot location.
 
 Run make check before a release. Use interactive make release, then make
-release-push. Build the exact tagged image separately, snapshot bot.db and private
-configuration while the single notifier is stopped, update only its image/config,
-then start it and verify health, topic permissions and actual source API reads.
+release-push. Build the exact tagged image separately, switch the single notifier
+to the new image and verify health, topic permissions and actual source API reads.
 Do not start a second live Telegram poller during verification. Verify full-handler
 flows in a separate bounded container with isolated data and a fake Telegram
 transport, retaining the real source/socket only for read-only live checks.
@@ -33,12 +32,12 @@ Keep 256 MiB / 0.25 CPU limits and the existing socket group. Native Web Watch a
 Node Tools are independent applications. Do not restart Core, sensor collectors,
 backup/calendar jobs, or unrelated bots during a Notifier rollout.
 
-Recovery snapshots remain under each application's recovery directory, with exact
-locations in its runtime/deployment.json and project verification record. Retain
-until a later verified deployment explicitly retires them. Database restoration
-requires cursor and delivery-receipt reconciliation; restoring a file alone is
-not a safe rollback procedure. Activity goes to the existing container journal;
-never log listing descriptions, public phone numbers, tokens or incoming text.
+Routine deployments rely on the existing database backups. Use the previous
+release and the current database for a code rollback. Create a separate
+deployment snapshot only for an explicit recovery need, such as a destructive
+migration. Reconcile cursors and delivery receipts before restoring older data.
+Activity goes to the existing container journal. Never log listing descriptions,
+public phone numbers, tokens or incoming text.
 
 ## Missing product notifications
 
@@ -51,7 +50,7 @@ notice and a real Telegram receipt. Preserve review state and subscriptions.
 
 For a verified delivery outage, recover genuinely unviewed post-reset identities
 through one source-owned catch-up digest per topic. Supersede undelivered old
-summaries only after protected snapshots and receipt reconciliation. Never invent
+summaries only after verifying backup coverage and reconciling receipts. Never invent
 Telegram IDs, reset favorites or replay every historical alert as a test.
 
 ## Keyboards rollout
