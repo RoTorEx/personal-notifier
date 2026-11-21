@@ -188,6 +188,29 @@ class FeedClient:
             raise ValueError("Producer does not confirm bulk review")
         return marked
 
+    async def search_request(self, enabled=None):
+        if not self.source.queue:
+            raise PermissionError("Search controls are disabled for this source")
+        session = self.session()
+        url = "http://source/search"
+        params = {"topic": self.source.topic}
+        request = (
+            session.get(url, params=params)
+            if enabled is None
+            else session.patch(url, params=params, json={"enabled": enabled})
+        )
+        async with request as response:
+            response.raise_for_status()
+            result = await bounded_json(response, 4096)
+        if (
+            not isinstance(result, dict)
+            or result.get("topic") != self.source.topic
+            or type(result.get("enabled")) is not bool
+            or (enabled is not None and result["enabled"] != enabled)
+        ):
+            raise ValueError("Producer does not confirm search state")
+        return result["enabled"]
+
     async def close(self):
         if self.http:
             await self.http.close()

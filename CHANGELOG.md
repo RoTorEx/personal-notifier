@@ -2,8 +2,8 @@
 
 ## [Unreleased]
 
-- Add Settings with per-topic notification switches. Muted collections stay browsable, and resuming skips the muted backlog.
-- Add Mark all viewed in Queue to update the current collection in one Web Watch request while keeping favorites.
+- Add Settings with per-topic switches for Web Watch searches. Paused collections stay browsable.
+- Add Mark all viewed under Settings → Queues to update a selected collection in one Web Watch request while keeping favorites.
 
 ## [0.6.5] - 2026-11-21
 

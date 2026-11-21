@@ -43,7 +43,8 @@ Queue-capable sources explicitly opt into queue=true in TOML. FeedClient uses GE
 only absolute viewed/favorite booleans are accepted. Guests pass an opaque actor
 identity; the empty legacy actor keeps the owner's existing review flags unchanged. No direct producer DB writes.
 A separate source queue capability cannot enable mutations against Vibecoding Core.
-Mark all viewed appears in a nonempty Queue. It issues one PATCH /queue with
+Settings → Queues lets the owner choose a collection and use Mark all viewed.
+It issues one PATCH /queue with
 `{"viewed":true}` for the current topic and actor. The producer atomically marks
 the currently eligible unviewed items and returns a count. Favorites, other
 queues and users, and items arriving after the operation retain their state.
@@ -173,11 +174,12 @@ per producer; failure leaves the subscription unchanged. Disconnected future
 topics have no producers yet. Settings remains accessible to the owner even
 when every review subscription is disabled.
 
-Settings → Notifications toggles the owner's pushes per connected topic.
-Muting is persistent and independent of collection access, review flags and
-other recipients. Resuming starts after the latest event watermark from each
-producer, including the local Home alert outbox. If a producer is unavailable,
-the topic remains muted. Scans and carousel browsing continue while muted.
+Settings → Searches reads and changes Web Watch's persistent collection state.
+One switch pauses or resumes actual discovery for all configured searches in the
+selected topic on that producer. The switch is shared by all users of that
+collection. Existing Queue and Favorites remain browsable. A resumed search
+participates in the next scheduled scan. Settings displays the producer's
+confirmed state and reports an unavailable source when it cannot read it.
 
 ## Home: notification-only indoor climate
 

@@ -377,11 +377,6 @@ class Notifier:
                             row["source"], row["body"], recipient, event_id=row["event_id"]
                         )
                         if sent is None:
-                            reason = "no_live_new_items" if " new ·" in row["body"] else "empty_queue"
-                            if recipient not in self.audience.recipients(
-                                row["event_id"], row["source"], queue_sources[row["source"]]
-                            ):
-                                reason = "recipient_no_longer_eligible"
                             with self.store.db:
                                 self.store.db.execute(
                                     "INSERT OR IGNORE INTO housing_skips VALUES(?,?,?,?,?)",
@@ -389,7 +384,7 @@ class Notifier:
                                         row["source"],
                                         row["event_id"],
                                         recipient,
-                                        reason,
+                                        "no_live_new_items" if " new ·" in row["body"] else "empty_queue",
                                         time.time(),
                                     ),
                                 )

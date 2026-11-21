@@ -184,6 +184,8 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
     }
     calls = []
     bulk_calls = []
+    search_changes = []
+    search_enabled = True
 
     async def events(request):
         # An older source ignores the optional filter; gallery validation must
@@ -220,10 +222,22 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
         card["viewed"] = True
         return web.json_response({"topic": topic, "marked": 1})
 
+    async def search(request):
+        nonlocal search_enabled
+        assert dict(request.query) == {"topic": topic}
+        if request.method == "PATCH":
+            payload = await request.json()
+            assert payload.keys() == {"enabled"}
+            search_enabled = payload["enabled"]
+            search_changes.append(search_enabled)
+        return web.json_response({"topic": topic, "enabled": search_enabled})
+
     server = web.Application()
     server.router.add_get("/events", events)
     server.router.add_get("/queue", queue)
     server.router.add_patch("/queue", mark_all)
+    server.router.add_get("/search", search)
+    server.router.add_patch("/search", search)
     runner = web.AppRunner(server)
     await runner.setup()
     await web.UnixSite(runner, str(socket)).start()
@@ -252,7 +266,20 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
         app = Notifier(settings, bot=bot)
         await app.deliver()
         assert len([call for call in bot.session.calls if isinstance(call, SendMessage)]) == 3
-        screen = await app.review.browse("pianos", "queue")
+        label = "Keyboards" if topic == "market.keyboards" else "Digital pianos"
+        screen = await app.review.home()
+        for button in ("Settings", "Searches", f"{label} · On"):
+            await app.handle(callback(screen, action(screen, button)))
+            screen = bot.session.messages[screen.message_id]
+        assert search_changes == [False]
+        queue_card = await app.review.browse("pianos", "queue")
+        assert all("Mark all" not in b.text for row in queue_card.reply_markup.inline_keyboard for b in row)
+        await app.handle(callback(screen, action(screen, f"{label} · Off")))
+        assert search_changes == [False, True]
+        screen = bot.session.messages[screen.message_id]
+        for button in ("Back", "Queues", label):
+            await app.handle(callback(screen, action(screen, button)))
+            screen = bot.session.messages[screen.message_id]
         mark = callback(screen, action(screen, "Mark all viewed"))
         await app.handle(mark)
         assert card["viewed"]
