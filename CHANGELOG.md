@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-11-21
+
 - Prefetch the next two Queue and Favorites cards while publishing the current card, and acknowledge review buttons without waiting to render the next screen.
 
 ## [0.6.4] - 2026-11-18
