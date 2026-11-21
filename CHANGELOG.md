@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-11-21
+
 - Add Settings with per-topic switches for Web Watch searches. Paused collections stay browsable.
 - Add Mark all viewed under Settings → Queues to update a selected collection in one Web Watch request while keeping favorites.
 
