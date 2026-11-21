@@ -609,6 +609,7 @@ class Notifier:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
         finally:
+            await self.review.close()
             if self.home:
                 await self.home.close()
             await self.engine.close()

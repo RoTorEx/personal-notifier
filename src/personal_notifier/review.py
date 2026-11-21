@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 from contextvars import ContextVar
 from urllib.parse import urlsplit
@@ -30,6 +31,8 @@ class ReviewUI:
         self.app = app
         self.lock = asyncio.Lock()
         self.recipient = ContextVar("review_recipient", default=app.settings.allowed_user_id)
+        self.previews: dict[int, tuple[str, dict[int, tuple[float, asyncio.Task]]]] = {}
+        self.tasks: set[asyncio.Task] = set()
         self.app.store.db.execute("""CREATE TABLE IF NOT EXISTS review_screens(
             token TEXT PRIMARY KEY,source TEXT NOT NULL,mode TEXT NOT NULL,
             offset INTEGER NOT NULL,item TEXT NOT NULL,message_id INTEGER NOT NULL,
@@ -52,6 +55,40 @@ class ReviewUI:
         if self.recipient.get() != self.app.settings.allowed_user_id:
             kwargs["actor"] = str(self.recipient.get())
         return await self.app.feeds[source].queue_request(mode, offset, **kwargs)
+
+    def background(self, coroutine):
+        task = asyncio.create_task(coroutine)
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+        return task
+
+    async def close(self):
+        tasks = list(self.tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.previews.clear()
+
+    def discard_previews(self, recipient):
+        window = self.previews.pop(recipient, None)
+        if window:
+            for _, task in window[1].values():
+                task.cancel()
+
+    async def preview(self, source, mode, offset, sort):
+        try:
+            page = await self.queue_request(source, mode, offset, sort=sort)
+            if page["item"] and page["offset"] == offset:
+                return page
+        except Exception as error:
+            log.debug("review.preview_unavailable error=%s", type(error).__name__)
+        return None
+
+    async def acknowledge(self, callback_id):
+        try:
+            await self.app.bot.answer_callback_query(callback_id, request_timeout=2)
+        except Exception as error:
+            log.debug("review.acknowledgement_unavailable error=%s", type(error).__name__)
 
     @property
     def sources(self):
@@ -147,6 +184,7 @@ class ReviewUI:
             self.app.audience.subscriptions.set(
                 self.recipient.get(), user_id, topics[index], bool(enabled), heads=heads
             )
+            self.discard_previews(user_id)
             log.info(
                 "subscription.changed actor=%s recipient=%s topic=%s enabled=%s",
                 self.recipient.get(),
@@ -207,6 +245,7 @@ class ReviewUI:
             )
 
     async def home(self, message=None):
+        self.discard_previews(self.recipient.get())
         sent = await self.display(
             "Personal Notifier · Home deck\n\nChoose an operation.", None, self.menu(), message
         )
@@ -221,6 +260,7 @@ class ReviewUI:
     async def market(self, message=None):
         from personal_notifier.subscriptions import TOPICS
 
+        self.discard_previews(self.recipient.get())
         rows = [
             [button(TOPICS[config.topic], f"housing:{name}")]
             for name, config in self.sources.items()
@@ -234,6 +274,7 @@ class ReviewUI:
     async def housing(self, source, message=None):
         from personal_notifier.subscriptions import TOPICS
 
+        self.discard_previews(self.recipient.get())
         config = self.sources[source]
         sent = await self.display(
             "<b>" + TOPICS[config.topic] + "</b>\n\nChoose a collection.",
@@ -357,9 +398,34 @@ class ReviewUI:
                 sent = repaired
             return sent
 
-    async def browse(self, source, mode, offset=0, message=None, parent="housing", page=None, sort=None):
-        sort = sort or self.app.store.get(f"housing_sort:{self.recipient.get()}:{source}:{mode}", "added")
-        page = page if page is not None else await self.queue_request(source, mode, offset, sort=sort)
+    async def browse(
+        self,
+        source,
+        mode,
+        offset=0,
+        message=None,
+        parent="housing",
+        page=None,
+        sort=None,
+        navigation_token=None,
+    ):
+        recipient = self.recipient.get()
+        sort = sort or self.app.store.get(f"housing_sort:{recipient}:{source}:{mode}", "added")
+        window = self.previews.get(recipient)
+        if window and window[0] != navigation_token:
+            self.discard_previews(recipient)
+            window = None
+        previews = window[1] if window else {}
+        now = time.monotonic()
+        for index, (expires, task) in list(previews.items()):
+            if expires <= now:
+                task.cancel()
+                del previews[index]
+        if page is None and offset in previews:
+            _, task = previews.pop(offset)
+            page = await task
+        if page is None:
+            page = await self.queue_request(source, mode, offset, sort=sort)
         item = page["item"]
         token = uuid.uuid4().hex[:16]
         rows = []
@@ -430,9 +496,32 @@ class ReviewUI:
         if nav:
             rows.append(nav)
         rows.append([button("⬅️ Back", f"back:{source}:housing"), button("🏠 Deck", "home")])
-        sent = await self.display(
-            html, photo, InlineKeyboardMarkup(inline_keyboard=rows), message, photos=photos
-        )
+        # Fetch while Telegram publishes the current card, carrying over any
+        # pending or ready successor when the user advances by one.
+        detached = bool(item and item.get("_detached"))
+        start = page["offset"] if detached else page["offset"] + 1
+        ahead = range(start, min(start + 2, page["total"] - int(detached)))
+        for index in list(previews):
+            if index not in ahead:
+                _, task = previews.pop(index)
+                task.cancel()
+        for index in ahead:
+            if index not in previews:
+                previews[index] = (
+                    time.monotonic() + 15,
+                    self.background(self.preview(source, mode, index, sort)),
+                )
+        if previews:
+            self.previews[recipient] = (token, previews)
+        else:
+            self.previews.pop(recipient, None)
+        try:
+            sent = await self.display(
+                html, photo, InlineKeyboardMarkup(inline_keyboard=rows), message, photos=photos
+            )
+        except BaseException:
+            self.discard_previews(recipient)
+            raise
         if not hasattr(sent, "message_id"):
             raise ValueError("Missing review message identity")
         with self.app.store.db:
@@ -528,7 +617,7 @@ class ReviewUI:
             if data == "market":
                 if not any(config.topic.startswith("market.") for config in self.sources.values()):
                     return
-                await self.app.bot.answer_callback_query(callback.id)
+                self.background(self.acknowledge(callback.id))
                 await self.market(message)
                 return
             if data == "home:temperature":
@@ -536,7 +625,7 @@ class ReviewUI:
                     self.recipient.get(), "home.temperature"
                 ):
                     return
-                await self.app.bot.answer_callback_query(callback.id)
+                self.background(self.acknowledge(callback.id))
                 state = self.app.home.state
                 sample = state.get("sample")
                 text = "🌡 Home\n\nNo fresh measurement available."
@@ -562,7 +651,7 @@ class ReviewUI:
                 return
             if data.startswith("manage:"):
                 if self.recipient.get() == self.app.settings.allowed_user_id:
-                    await self.app.bot.answer_callback_query(callback.id)
+                    self.background(self.acknowledge(callback.id))
                     try:
                         await self.management(data, message)
                     except (ValueError, PermissionError):
@@ -581,14 +670,14 @@ class ReviewUI:
                     or parts[2] not in ("home", "queue", "housing")
                 ):
                     return
-                await self.app.bot.answer_callback_query(callback.id)
+                self.background(self.acknowledge(callback.id))
                 if parts[2] in ("queue", "housing"):
                     await self.housing(parts[1], message)
                 else:
                     await self.home(message)
                 return
             if data == "home":
-                await self.app.bot.answer_callback_query(callback.id)
+                self.background(self.acknowledge(callback.id))
                 await self.home(message)
                 with self.app.store.db:
                     self.app.store.db.execute(
@@ -599,14 +688,14 @@ class ReviewUI:
             if data.startswith("housing:"):
                 source = data.split(":", 1)[1]
                 if source in self.sources:
-                    await self.app.bot.answer_callback_query(callback.id)
+                    self.background(self.acknowledge(callback.id))
                     await self.housing(source, message)
                 return
             if data.startswith("browse:"):
                 parts = data.split(":")
                 if len(parts) != 3 or parts[1] not in self.sources or parts[2] not in ("queue", "favorites"):
                     return
-                await self.app.bot.answer_callback_query(callback.id)
+                self.background(self.acknowledge(callback.id))
                 await self.browse(
                     parts[1], parts[2], message=message, sort="added" if parts[2] == "queue" else None
                 )
@@ -638,7 +727,7 @@ class ReviewUI:
                     callback.id, text="Card changed. Open the queue again."
                 )
                 return
-            await self.app.bot.answer_callback_query(callback.id)
+            self.background(self.acknowledge(callback.id))
             offset = view["offset"]
             action = parts[2]
             if action == "sort":
@@ -666,6 +755,7 @@ class ReviewUI:
                 step = 0 if action == "next" and item.get("_detached") else 1 if action == "next" else -1
                 offset = max(0, offset + step)
             else:
+                self.discard_previews(self.recipient.get())
                 await self.queue_request(
                     view["source"], item=(item["connector"], item["id"]), changes={action: not item[action]}
                 )
@@ -688,5 +778,11 @@ class ReviewUI:
                     )
                     return
             await self.browse(
-                view["source"], view["mode"], offset, message, parent=view["parent"], sort=view["sort"]
+                view["source"],
+                view["mode"],
+                offset,
+                message,
+                parent=view["parent"],
+                sort=view["sort"],
+                navigation_token=view["token"] if action in ("prev", "next") else None,
             )

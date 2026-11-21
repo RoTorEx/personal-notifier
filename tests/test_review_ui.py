@@ -1,5 +1,6 @@
 """Exercise deck, carousel, source writes and owner checks through real handlers."""
 
+import asyncio
 from copy import deepcopy
 
 import pytest
@@ -74,6 +75,7 @@ async def app(tmp_path):
     app = Notifier(settings, bot=bot)
     app.feeds["housing"] = QueueFeed()
     yield app
+    await app.review.close()
     app.store.close()
     await bot.session.close()
 
@@ -100,6 +102,62 @@ def action(message, text):
     return next(
         b.callback_data for row in message.reply_markup.inline_keyboard for b in row if text in b.text
     )
+
+
+async def test_carousel_prefetches_two_cards_and_does_not_wait_for_callback_ack(app):
+    feed = app.feeds["housing"]
+    session = app.bot.session
+    original = session.make_request
+    reads = asyncio.Event()
+    acknowledge = asyncio.Event()
+    release_ack = asyncio.Event()
+    original_queue_request = feed.queue_request
+
+    async def queue_request(mode="queue", offset=0, **kwargs):
+        page = await original_queue_request(mode, offset, **kwargs)
+        if {1, 2}.issubset(call[1] for call in feed.calls):
+            reads.set()
+        return page
+
+    async def transport(bot, method, timeout=None):
+        if isinstance(method, SendPhoto):
+            # Both next reads must start before the first card is published.
+            await reads.wait()
+        if isinstance(method, AnswerCallbackQuery):
+            acknowledge.set()
+            await release_ack.wait()
+        return await original(bot, method, timeout)
+
+    feed.queue_request = queue_request
+    session.make_request = transport
+    async with asyncio.timeout(1):
+        current = await app.review.browse("housing", "queue")
+        for index in (1, 2):
+            await app.handle(callback(current, action(current, "➡️")))
+            current = session.messages[current.message_id]
+            assert f"Flat {index}" in current.caption
+        await acknowledge.wait()
+        assert [call[1] for call in feed.calls] == [0, 1, 2]
+    release_ack.set()
+
+
+async def test_carousel_recovers_from_failed_prefetch(app):
+    feed = app.feeds["housing"]
+    original = feed.queue_request
+    attempted = asyncio.Event()
+
+    async def queue_request(mode="queue", offset=0, **kwargs):
+        if offset == 1 and not attempted.is_set():
+            attempted.set()
+            raise TimeoutError
+        return await original(mode, offset, **kwargs)
+
+    feed.queue_request = queue_request
+    async with asyncio.timeout(1):
+        current = await app.review.browse("housing", "queue")
+        await attempted.wait()
+        await app.handle(callback(current, action(current, "➡️")))
+    assert "Flat 1" in app.bot.session.messages[current.message_id].caption
 
 
 async def test_deck_housing_menu_then_carousel_and_separate_back(app):

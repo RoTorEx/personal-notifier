@@ -64,6 +64,15 @@ and Rent (advertised PLN ascending, unknown prices last), persists per collectio
 person, and resets to the first card when changed. Opening Queue from a digest,
 Housing or /queue explicitly starts in Published order, irrespective of a prior
 price sort. Explicit carousel sort changes still persist while navigating.
+While publishing a Queue or Favorites card, fetch the next two available cards
+in the background so forward navigation can reuse their source data. Keep one
+lookahead window per recipient, tied to the active card's token and current sort.
+Previews expire after 15 seconds to limit stale ordering and flags after source
+updates. Reopening or sorting a collection and changing review flags discard the
+previous window. Mutations and notification counts continue to use the live
+source. Missing or failed previews fall back to live reads. Button acknowledgements
+run concurrently with rendering. Telegram still controls media loading and the
+existing write pace applies to message edits.
 Carousel buttons edit the existing message. Telegram cannot remove photo media
 through an edit: returning to a text menu or empty screen sends the genuine text
 screen and removes the previous photo message. Never fabricate a placeholder image.
