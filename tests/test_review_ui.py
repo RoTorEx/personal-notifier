@@ -165,7 +165,7 @@ async def test_deck_housing_menu_then_carousel_and_separate_back(app):
     deck = list(app.bot.session.messages.values())[-1]
     assert [[b.text for b in row] for row in deck.reply_markup.inline_keyboard] == [
         ["🏠 Housing"],
-        ["⚙️ Management"],
+        ["⚙️ Settings"],
     ]
     before = len(app.bot.session.calls)
     await app.handle(callback(deck, "vibecoding"))

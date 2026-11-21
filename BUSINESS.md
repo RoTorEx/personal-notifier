@@ -9,7 +9,7 @@ Node Radar retains infrastructure notifications. No source implementation is imp
 
 ## Home deck and owner boundary
 
-The English Home deck contains subscribed Housing, Market and optional Home connections, plus owner-only Management. Vibecoding outcomes belong to Node Radar; retained old commands/callbacks point there. No execution or technical collection entry appears in the product deck.
+The English Home deck contains subscribed Housing, Market and optional Home connections, plus owner-only Settings. Vibecoding outcomes belong to Node Radar; retained old commands/callbacks point there. No execution or technical collection entry appears in the product deck.
 Housing opens a text section menu with 📋 Queue and ⭐ Favorites. Each collection
 has its own carousel. Viewed removes a card from Queue immediately. Removing a
 favorite inside Favorites keeps that card visible and undoable until explicit
@@ -43,6 +43,13 @@ Queue-capable sources explicitly opt into queue=true in TOML. FeedClient uses GE
 only absolute viewed/favorite booleans are accepted. Guests pass an opaque actor
 identity; the empty legacy actor keeps the owner's existing review flags unchanged. No direct producer DB writes.
 A separate source queue capability cannot enable mutations against Vibecoding Core.
+Mark all viewed appears in a nonempty Queue. It issues one PATCH /queue with
+`{"viewed":true}` for the current topic and actor. The producer atomically marks
+the currently eligible unviewed items and returns a count. Favorites, other
+queues and users, and items arriving after the operation retain their state.
+Invalidate previews and earlier cards for the affected collection and user so
+replaying the same button cannot clear later arrivals. An unconfirmed result
+offers a fresh queue read.
 
 Cards use source-owned seller, Published and Updated on separate bold lines,
 price, location/street, property facts, explicit amenities and available description/
@@ -153,7 +160,7 @@ Vibecoding-to-Radar handover preserves the prior cursor, work counters, pending
 outcome identities and genuine receipts in a protected one-off export.
 Existing pinned members migrate to Housing only. The owner starts subscribed to
 all supported topics; startup never overrides later subscription changes.
-Management presents Topics → subscribers and Users → subscriptions, as two views
+Settings presents Topics → subscribers and Users → subscriptions, as two views
 of the same persisted relation. Only the numeric owner can inspect or change it.
 Existing username-based invitations remain the enrollment mechanism in this stage.
 A disabled Housing subscription excludes recipients before sending and rejects
@@ -163,8 +170,14 @@ without capturing notices or advancing capture cursors. New enrollment remains
 pending with Housing disabled until the same read succeeds; a later private
 request retries it. Reads have a ten-second overall budget and at most 100 pages
 per producer; failure leaves the subscription unchanged. Disconnected future
-topics have no producers yet. Management remains accessible to the owner even
+topics have no producers yet. Settings remains accessible to the owner even
 when every review subscription is disabled.
+
+Settings → Notifications toggles the owner's pushes per connected topic.
+Muting is persistent and independent of collection access, review flags and
+other recipients. Resuming starts after the latest event watermark from each
+producer, including the local Home alert outbox. If a producer is unavailable,
+the topic remains muted. Scans and carousel browsing continue while muted.
 
 ## Home: notification-only indoor climate
 

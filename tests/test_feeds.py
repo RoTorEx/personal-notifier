@@ -138,6 +138,7 @@ def test_invalid_gallery_cannot_advance_cursor(photos):
 async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps_receipt(tmp_path, topic):
     from aiogram.methods import SendRichMessage
     from aiohttp import web
+    from test_review_ui import action, callback
 
     socket_dir = tempfile.TemporaryDirectory(prefix="pn-", dir="/tmp")
     socket = Path(socket_dir.name) / "source.sock"
@@ -182,6 +183,7 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
         "priority": 2,
     }
     calls = []
+    bulk_calls = []
 
     async def events(request):
         # An older source ignores the optional filter; gallery validation must
@@ -202,18 +204,26 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
         calls.append(dict(request.query))
         result = {
             "topic": source.topic,
-            "total": 1,
+            "total": int(not card["viewed"]),
             "offset": 0,
-            "item": card,
+            "item": None if card["viewed"] else card,
             "last_refresh": "2026-11-18T12:00:00Z",
         }
         if "event_id" in request.query:
             result.update(event_id=int(request.query["event_id"]), new_total=1)
         return web.json_response(result)
 
+    async def mark_all(request):
+        assert dict(request.query) == {"topic": topic, "actor": ""}
+        assert await request.json() == {"viewed": True}
+        bulk_calls.append(topic)
+        card["viewed"] = True
+        return web.json_response({"topic": topic, "marked": 1})
+
     server = web.Application()
     server.router.add_get("/events", events)
     server.router.add_get("/queue", queue)
+    server.router.add_patch("/queue", mark_all)
     runner = web.AppRunner(server)
     await runner.setup()
     await web.UnixSite(runner, str(socket)).start()
@@ -242,7 +252,16 @@ async def test_real_feed_client_captures_delivers_and_browses_gallery_then_keeps
         app = Notifier(settings, bot=bot)
         await app.deliver()
         assert len([call for call in bot.session.calls if isinstance(call, SendMessage)]) == 3
+        screen = await app.review.browse("pianos", "queue")
+        mark = callback(screen, action(screen, "Mark all viewed"))
+        await app.handle(mark)
+        assert card["viewed"]
+        assert "Marked as viewed · 1" in bot.session.messages[screen.message_id].text
+        card["viewed"] = False  # A new unviewed card appears after the bulk action.
+        await app.handle(mark)
+        assert bulk_calls == [topic] and not card["viewed"]
     finally:
+        await app.review.close()
         await app.feeds["pianos"].close()
         app.store.close()
         await bot.session.close()

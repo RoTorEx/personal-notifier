@@ -24,6 +24,8 @@ class Subscriptions:
             CREATE TABLE IF NOT EXISTS subscription_watermarks(
                 user_id INTEGER NOT NULL,topic TEXT NOT NULL,source TEXT NOT NULL,event_id INTEGER NOT NULL,
                 PRIMARY KEY(user_id,topic,source));
+            CREATE TABLE IF NOT EXISTS muted_alerts(
+                user_id INTEGER NOT NULL,topic TEXT NOT NULL,PRIMARY KEY(user_id,topic));
         """)
         with store.db:
             store.db.execute("INSERT OR IGNORE INTO product_users VALUES(?,?)", (owner, "Owner"))
@@ -70,6 +72,32 @@ class Subscriptions:
                 (user_id, topic, row["source"], row["id"]),
             )
 
+    def alerts_enabled(self, user_id, topic):
+        return not self.store.one("SELECT 1 FROM muted_alerts WHERE user_id=? AND topic=?", (user_id, topic))
+
+    def set_alerts(self, user_id, topic, enabled, heads=None):
+        if not self.allowed(user_id, topic):
+            raise PermissionError("Subscription required")
+        with self.store.db:
+            if enabled:
+                self._save_heads(user_id, topic, heads)
+                self.store.db.execute(
+                    "DELETE FROM muted_alerts WHERE user_id=? AND topic=?", (user_id, topic)
+                )
+            else:
+                self.store.db.execute("INSERT OR IGNORE INTO muted_alerts VALUES(?,?)", (user_id, topic))
+
+    def _save_heads(self, user_id, topic, heads):
+        for source, event_id in (heads or {}).items():
+            self.store.db.execute(
+                """
+                INSERT INTO subscription_watermarks VALUES(?,?,?,?)
+                ON CONFLICT(user_id,topic,source) DO UPDATE
+                SET event_id=MAX(subscription_watermarks.event_id, excluded.event_id)
+                """,
+                (user_id, topic, source, event_id),
+            )
+
     def set(self, actor, user_id, topic, enabled, heads=None):
         if actor != self.owner:
             raise PermissionError("Owner required")
@@ -82,11 +110,7 @@ class Subscriptions:
         with self.store.db:
             if enabled and not self.allowed(user_id, topic):
                 self._watermarks(user_id, topic)
-                for source, event_id in (heads or {}).items():
-                    self.store.db.execute(
-                        "INSERT OR REPLACE INTO subscription_watermarks VALUES(?,?,?,?)",
-                        (user_id, topic, source, event_id),
-                    )
+                self._save_heads(user_id, topic, heads)
             self.store.db.execute(
                 "INSERT OR REPLACE INTO product_subscriptions VALUES(?,?,?)", (user_id, topic, int(enabled))
             )
@@ -102,6 +126,7 @@ class Subscriptions:
             SELECT s.user_id FROM product_subscriptions s
             LEFT JOIN subscription_watermarks w ON w.user_id=s.user_id AND w.topic=s.topic AND w.source=?
             WHERE s.topic=? AND s.enabled=1 AND ? > COALESCE(w.event_id,0)
+            AND NOT EXISTS (SELECT 1 FROM muted_alerts m WHERE m.user_id=s.user_id AND m.topic=s.topic)
             ORDER BY s.user_id
         """,
                 (source, topic, event_id),

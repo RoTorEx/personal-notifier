@@ -3,6 +3,7 @@
 import pytest
 from test_housing_audience import pair as _pair
 from test_housing_audience import start
+from test_review_ui import action, callback
 
 from personal_notifier.subscriptions import Subscriptions
 
@@ -55,6 +56,46 @@ def event(identifier):
         "url": "",
         "priority": 1,
     }
+
+
+async def test_notification_settings_mute_delivery_without_hiding_queue_or_replaying_backlog(pair):
+    await pair.handle(start())
+    deck = await pair.review.home()
+    await pair.handle(callback(deck, action(deck, "Settings")))
+    settings = pair.bot.session.messages[deck.message_id]
+    await pair.handle(callback(settings, action(settings, "Notifications")))
+    alerts = pair.bot.session.messages[deck.message_id]
+    await pair.handle(callback(alerts, action(alerts, "Housing · On")))
+    alerts = pair.bot.session.messages[deck.message_id]
+    assert action(alerts, "Housing · Off")
+    assert not Subscriptions(pair.store, 42).alerts_enabled(42, "housing")
+    assert pair.audience.subscriptions.allowed(42, "housing")
+    assert pair.audience.subscriptions.alerts_enabled(42, "home.temperature")
+    assert "Flat 0" in (await pair.review.browse("housing", "queue")).caption
+    with pair.store.db:
+        pair.store.db.execute(
+            "INSERT INTO feed_notices(source,event_id,body,url,priority,created) VALUES('housing',2,'New','',0,0)"
+        )
+    await pair.deliver()
+    assert [r["recipient"] for r in pair.store.rows("SELECT recipient FROM housing_receipts")] == [99]
+
+    async def unreachable(cursor):
+        raise OSError("Unavailable")
+
+    pair.feeds["housing"].read = unreachable
+    await pair.handle(callback(alerts, action(alerts, "Housing · Off")))
+    alerts = pair.bot.session.messages[deck.message_id]
+    assert "Notifications are still off" in alerts.text
+
+    async def source_head(cursor):
+        return {"version": 1, "events": [event(3)], "next_cursor": 3}
+
+    pair.feeds["housing"].read = source_head
+    await pair.handle(callback(alerts, action(alerts, "Housing · Off")))
+    assert action(pair.bot.session.messages[deck.message_id], "Housing · On")
+    assert pair.audience.recipients(3) == [99]
+    assert pair.audience.recipients(4) == [42, 99]
+    assert pair.store.get("feed_cursor:housing", "0") == "0"
 
 
 async def test_enrollment_drains_uncaptured_producer_backlog_without_capturing(pair):

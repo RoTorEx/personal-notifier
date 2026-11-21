@@ -80,6 +80,23 @@ async def test_home_receipts_survive_restart_and_guest_is_not_subscribed(pair):
     assert len(pair.store.rows("SELECT * FROM home_receipts")) == 2
 
 
+async def test_muted_home_alarm_resumes_only_for_a_fresh_notice(pair):
+    pair.home = home = Home(pair)
+    subs = pair.audience.subscriptions
+    subs.set_alerts(42, "home.temperature", False)
+    first = sample(14900)
+    home.capture(first, 1000)
+    await home.deliver(first, 1000)
+    assert pair.store.rows("SELECT * FROM home_receipts") == []
+    subs.set_alerts(42, "home.temperature", True, await pair.subscription_heads("home.temperature"))
+    await home.deliver(first, 1000)
+    assert pair.store.rows("SELECT * FROM home_receipts") == []
+    next_reading = sample(14900, 1300)
+    home.capture(next_reading, 1300)
+    await home.deliver(next_reading, 1300)
+    assert pair.store.one("SELECT event_id FROM home_receipts")["event_id"] == 2
+
+
 def test_simultaneous_band_and_timer_make_one_alarm_and_large_jump_is_coalesced():
     state, _ = advance({}, sample(14900), 1000)
     state, alert = advance(state, sample(12500, 1300), 1300)

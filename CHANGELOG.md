@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Add Settings with per-topic notification switches. Muted collections stay browsable, and resuming skips the muted backlog.
+- Add Mark all viewed in Queue to update the current collection in one Web Watch request while keeping favorites.
+
 ## [0.6.5] - 2026-11-21
 
 - Prefetch the next two Queue and Favorites cards while publishing the current card, and acknowledge review buttons without waiting to render the next screen.

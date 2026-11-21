@@ -174,7 +174,9 @@ class Home:
             prior_temperature = json.loads(previous["sample"])["temperature"] if previous else None
             try:
                 async with self.app.send_lock:
-                    if not self.app.audience.subscriptions.allowed(recipient, "home.temperature"):
+                    if recipient not in self.app.audience.subscriptions.recipients(
+                        "home.temperature", "home", row["id"]
+                    ):
                         continue
                     sent = await self.app.bot.send_message(recipient, body(sample, prior_temperature))
             except Exception as error:

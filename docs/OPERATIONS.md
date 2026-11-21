@@ -24,6 +24,9 @@ then start it and verify health, topic permissions and actual source API reads.
 Do not start a second live Telegram poller during verification. Verify full-handler
 flows in a separate bounded container with isolated data and a fake Telegram
 transport, retaining the real source/socket only for read-only live checks.
+Deploy Web Watch with the actor- and topic-scoped PATCH /queue endpoint before
+rolling out the Notifier's Mark all viewed control. Exercise the bulk write only
+against a disposable producer database during verification.
 
 Keep 256 MiB / 0.25 CPU limits and the existing socket group. Native Web Watch and
 Node Tools are independent applications. Do not restart Core, sensor collectors,

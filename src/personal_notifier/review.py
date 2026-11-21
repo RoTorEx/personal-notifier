@@ -110,7 +110,7 @@ class ReviewUI:
         ):
             rows.append([button("🌡 Home", "home:temperature")])
         if self.recipient.get() == self.app.settings.allowed_user_id:
-            rows.append([button("⚙️ Management", "manage:home")])
+            rows.append([button("⚙️ Settings", "manage:home")])
         return InlineKeyboardMarkup(inline_keyboard=rows or [[button("🔄 Refresh", "home")]])
 
     async def management(self, data, message):
@@ -119,12 +119,17 @@ class ReviewUI:
         from personal_notifier.subscriptions import TOPICS
 
         parts = data.split(":")
+        if parts[1:2] == ["alerts"]:
+            return await self.notification_settings(parts[2:], message)
         topics = list(TOPICS)
         users = self.app.store.rows("SELECT * FROM product_users ORDER BY user_id")
         rows = []
-        title = "⚙️ Management"
+        title = "⚙️ Settings"
         if parts == ["manage", "home"]:
-            rows = [[button("🔔 Topics", "manage:topics"), button("👥 Users", "manage:users")]]
+            rows = [
+                [button("🔔 Notifications", "manage:alerts")],
+                [button("Topics", "manage:topics"), button("Users", "manage:users")],
+            ]
         elif parts == ["manage", "topics"]:
             rows = [[button(label, f"manage:topic:{index}")] for index, label in enumerate(TOPICS.values())]
         elif parts == ["manage", "users"]:
@@ -205,18 +210,57 @@ class ReviewUI:
         )
         await self.display(title, None, InlineKeyboardMarkup(inline_keyboard=rows), message)
 
+    async def notification_settings(self, action, message):
+        from personal_notifier.subscriptions import TOPICS
+
+        recipient = self.recipient.get()
+        subscriptions = self.app.audience.subscriptions
+        configured = {source.topic for source in self.sources.values()}
+        if self.app.settings.home_socket and subscriptions.allowed(recipient, "home.temperature"):
+            configured.add("home.temperature")
+        topics = list(TOPICS)
+        text = "🔔 Notifications"
+        if action:
+            if len(action) != 2:
+                return
+            index, enabled = map(int, action)
+            if not 0 <= index < len(topics) or topics[index] not in configured or enabled not in (0, 1):
+                return
+            topic = topics[index]
+            if bool(enabled) != subscriptions.alerts_enabled(recipient, topic):
+                try:
+                    heads = await self.app.subscription_heads(topic) if enabled else None
+                except Exception as error:
+                    log.warning(
+                        "notifications.resume_deferred topic=%s error=%s", topic, type(error).__name__
+                    )
+                    text += "\n\nSource unavailable. Notifications are still off."
+                else:
+                    subscriptions.set_alerts(recipient, topic, bool(enabled), heads)
+        rows = []
+        for index, topic in enumerate(topics):
+            if topic in configured:
+                enabled = subscriptions.alerts_enabled(recipient, topic)
+                status = "On" if enabled else "Off"
+                rows.append(
+                    [button(f"{TOPICS[topic]} · {status}", f"manage:alerts:{index}:{int(not enabled)}")]
+                )
+        if not rows:
+            text += "\n\nNo notification topics are available."
+        rows.append([button("⬅️ Back", "manage:home"), button("🏠 Deck", "home")])
+        await self.display(text, None, InlineKeyboardMarkup(inline_keyboard=rows), message)
+
     async def summary(self, source, text, recipient=None, event_id=None, new_listing=None):
         if text.startswith(("🏠 Housing reminder", "Housing reminder")):
             return None
         import re
 
+        target = recipient or self.app.settings.allowed_user_id
+        topic = next(config.topic for config in self.app.settings.sources if config.name == source)
         # Producer event text is a historical scan snapshot, for either recipient.
         # Read the same personal unviewed queue used by the carousel at delivery.
         if new_listing or re.search(r"\d+ (?:in queue|waiting in your queue)", text):
-            target = recipient or self.app.settings.allowed_user_id
-            if not self.app.audience.subscriptions.allowed(
-                target, next(config.topic for config in self.app.settings.sources if config.name == source)
-            ):
+            if not self.app.audience.subscriptions.allowed(target, topic):
                 return None
             kwargs = {"actor": str(target)} if target != self.app.settings.allowed_user_id else {}
             is_new = new_listing if new_listing is not None else re.search(r"\d+ new ·", text) is not None
@@ -236,6 +280,8 @@ class ReviewUI:
                 r"\d+ (in queue|waiting in your queue)", lambda match: f"{page['total']} {match[1]}", text
             )
         async with self.app.send_lock:
+            if event_id is not None and target not in self.app.audience.recipients(event_id, source, topic):
+                return None
             return await self.app.bot.send_message(
                 recipient or self.app.settings.allowed_user_id,
                 text,
@@ -300,6 +346,38 @@ class ReviewUI:
                     (message.message_id, self.recipient.get()),
                 )
         return sent
+
+    async def mark_queue_viewed(self, source, message):
+        recipient = self.recipient.get()
+        if source not in self.sources:
+            return
+        actor = "" if recipient == self.app.settings.allowed_user_id else str(recipient)
+        self.discard_previews(recipient)
+        # Consume old buttons before the request. A lost response or Telegram
+        # edit failure must not re-run a bulk action against newly arrived cards.
+        with self.app.store.db:
+            self.app.store.db.execute(
+                "DELETE FROM review_screens WHERE source=? AND chat_id=?", (source, recipient)
+            )
+        try:
+            marked = await self.app.feeds[source].mark_queue_viewed(actor)
+        except Exception as error:
+            log.warning("review.bulk_unconfirmed source=%s error=%s", source, type(error).__name__)
+            text = "Could not confirm the update. Open the queue to check its contents."
+        else:
+            log.info("review.bulk_viewed source=%s recipient=%s marked=%s", source, recipient, marked)
+            text = f"Marked as viewed · {marked}" if marked else "No unviewed listings."
+        await self.display(
+            text,
+            None,
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [button("📋 Queue", f"browse:{source}:queue")],
+                    [button("⬅️ Back", f"back:{source}:housing"), button("🏠 Deck", "home")],
+                ]
+            ),
+            message,
+        )
 
     async def display(self, html, photo, markup, message=None, photos=None):
         bot = self.app.bot
@@ -495,6 +573,8 @@ class ReviewUI:
             nav.append(button("➡️", f"view:{token}:next"))
         if nav:
             rows.append(nav)
+        if item and mode == "queue":
+            rows.append([button("✓ Mark all viewed", f"view:{token}:mark_all_viewed")])
         rows.append([button("⬅️ Back", f"back:{source}:housing"), button("🏠 Deck", "home")])
         # Fetch while Telegram publishes the current card, carrying over any
         # pending or ready successor when the user advances by one.
@@ -715,6 +795,7 @@ class ReviewUI:
                     "position",
                     "sort",
                     "photos",
+                    "mark_all_viewed",
                 )
             ):
                 return
@@ -730,6 +811,10 @@ class ReviewUI:
             self.background(self.acknowledge(callback.id))
             offset = view["offset"]
             action = parts[2]
+            if action == "mark_all_viewed":
+                if view["mode"] == "queue":
+                    await self.mark_queue_viewed(view["source"], message)
+                return
             if action == "sort":
                 choices = ("added", "updated", "price")
                 sort = choices[(choices.index(view["sort"]) + 1) % len(choices)]

@@ -80,12 +80,15 @@ class FeedClient:
         self.source = source
         self.http = None
 
-    async def read(self, cursor):
+    def session(self):
         if self.http is None:
             self.http = ClientSession(
                 connector=UnixConnector(path=str(self.source.socket)), timeout=ClientTimeout(total=10)
             )
-        async with self.http.get(
+        return self.http
+
+    async def read(self, cursor):
+        async with self.session().get(
             "http://source/events",
             params={
                 "after": cursor,
@@ -107,10 +110,7 @@ class FeedClient:
         if item is not None and self.source.topic != "housing":
             # Verify namespace before mutating, including after a producer rollback.
             await self.queue_request(actor=actor, event_id=1)
-        if self.http is None:
-            self.http = ClientSession(
-                connector=UnixConnector(path=str(self.source.socket)), timeout=ClientTimeout(total=10)
-            )
+        session = self.session()
         if item is None:
             if mode not in ("queue", "favorites") or type(offset) is not int or offset < 0:
                 raise ValueError("Invalid queue request")
@@ -125,7 +125,7 @@ class FeedClient:
                 if type(event_id) is not int or event_id <= 0:
                     raise ValueError("Invalid queue notice event")
                 params["event_id"] = event_id
-            request = self.http.get("http://source/queue", params=params)
+            request = session.get("http://source/queue", params=params)
         else:
             if (
                 not isinstance(changes, dict)
@@ -137,7 +137,7 @@ class FeedClient:
             from urllib.parse import quote
 
             connector, identifier = item
-            request = self.http.patch(
+            request = session.patch(
                 "http://source/items/" + quote(connector, safe="") + "/" + quote(identifier, safe=""),
                 params={"actor": actor, "sort": sort, "topic": self.source.topic},
                 json=changes,
@@ -172,6 +172,21 @@ class FeedClient:
                     raise ValueError("Invalid listing link")
                 validate_presentation(card["presentation"])
         return result
+
+    async def mark_queue_viewed(self, actor=""):
+        if not self.source.queue:
+            raise PermissionError("Queue controls are disabled for this source")
+        async with self.session().patch(
+            "http://source/queue", params={"topic": self.source.topic, "actor": actor}, json={"viewed": True}
+        ) as response:
+            response.raise_for_status()
+            result = await bounded_json(response, 4096)
+        if not isinstance(result, dict) or result.get("topic") != self.source.topic:
+            raise ValueError("Producer does not confirm bulk review")
+        marked = result.get("marked")
+        if type(marked) is not int or marked < 0:
+            raise ValueError("Producer does not confirm bulk review")
+        return marked
 
     async def close(self):
         if self.http:
