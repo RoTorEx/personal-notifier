@@ -1,12 +1,12 @@
 """No queue reminders are captured or sent; genuine new discoveries still reach both users."""
 
 from aiogram.methods import SendMessage
+from test_housing_audience import enroll_housing
 from test_housing_audience import pair as pair
-from test_housing_audience import start
 
 
 async def test_capture_skips_reminders_but_delivers_new_members_to_both(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
 
     async def read(cursor):
         events = (
@@ -47,7 +47,7 @@ async def test_capture_skips_reminders_but_delivers_new_members_to_both(pair):
 
 
 async def test_pending_typed_and_legacy_reminders_are_suppressed_without_source_reads(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     with pair.store.db:
         pair.store.db.execute(
             "INSERT INTO feed_notices(source,event_id,body,url,priority,created,event_type) VALUES('housing',1,'Queue waiting','',0,0,'housing.queue.reminder')"

@@ -111,7 +111,7 @@ class Notifier:
         self.bot = bot or Bot(settings.read_token())
         if bot is None:
             self.bot.session.middleware.register(
-                ChatPacer(self.store, settings.allowed_user_id, self.audience.allowed)
+                ChatPacer(self.store, settings.allowed_user_id, self.audience.subscriptions.registered)
             )
         self.engine = ReadOnlyCoreClient(engine or CoreClient(settings))
         self.feeds = {source.name: FeedClient(source) for source in settings.sources}
@@ -573,8 +573,8 @@ class Notifier:
             if self.settings.bot_username and identity.username != self.settings.bot_username:
                 raise ValueError("Notifier token belongs to an unexpected bot")
             queue_enabled = any(source.queue for source in self.settings.sources)
+            await self.bot.set_my_commands([BotCommand(command="menu", description="Open menu")])
             if queue_enabled:
-                await self.bot.delete_my_commands()
                 await self.bot.set_my_commands(
                     [
                         BotCommand(command="menu", description="Home deck"),
@@ -583,11 +583,15 @@ class Notifier:
                     scope=BotCommandScopeChat(chat_id=self.settings.allowed_user_id),
                 )
             else:
-                await self.bot.delete_my_commands()
+                await self.bot.delete_my_commands(
+                    scope=BotCommandScopeChat(chat_id=self.settings.allowed_user_id)
+                )
             if queue_enabled:
                 for recipient in [self.settings.allowed_user_id] + [
                     m["user_id"] for m in self.audience.members()
                 ]:
+                    if not self.audience.subscriptions.allowed(recipient, "housing"):
+                        continue
                     try:
                         await self.housing_guide(recipient)
                     except Exception as error:
@@ -595,8 +599,7 @@ class Notifier:
                             "housing.guide_failed recipient=%s error=%s", recipient, type(error).__name__
                         )
             tasks = [asyncio.create_task(self.notifications())]
-            if queue_enabled or self.home:
-                tasks.append(asyncio.create_task(self.updates_loop()))
+            tasks.append(asyncio.create_task(self.updates_loop()))
             if self.home:
                 tasks.append(asyncio.create_task(self.home_loop()))
             if self.settings.core_enabled:

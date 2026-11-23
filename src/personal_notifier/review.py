@@ -8,7 +8,7 @@ import uuid
 from contextvars import ContextVar
 from urllib.parse import urlsplit
 
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import (
     CopyTextButton,
     InlineKeyboardButton,
@@ -24,6 +24,7 @@ def button(text, data):
 
 
 log = logging.getLogger(__name__)
+USERS_PER_PAGE = 20
 
 
 class ReviewUI:
@@ -113,6 +114,20 @@ class ReviewUI:
             rows.append([button("⚙️ Settings", "manage:home")])
         return InlineKeyboardMarkup(inline_keyboard=rows or [[button("🔄 Refresh", "home")]])
 
+    def user_page(self, page, target):
+        total = self.app.store.one("SELECT COUNT(*) AS total FROM product_users")["total"]
+        page = max(0, min(page, (total - 1) // USERS_PER_PAGE))
+        users = self.app.store.rows(
+            "SELECT user_id,label FROM product_users ORDER BY user_id LIMIT ? OFFSET ?",
+            (USERS_PER_PAGE, page * USERS_PER_PAGE),
+        )
+        navigation = []
+        if page:
+            navigation.append(button("⬅️ Previous", f"{target}:{page - 1}"))
+        if (page + 1) * USERS_PER_PAGE < total:
+            navigation.append(button("Next ➡️", f"{target}:{page + 1}"))
+        return users, page, navigation
+
     async def management(self, data, message):
         if self.recipient.get() != self.app.settings.allowed_user_id:
             return
@@ -131,8 +146,8 @@ class ReviewUI:
         if len(parts) == 3 and parts[1] == "queue" and parts[2] in self.sources:
             return await self.queue_settings(message, parts[2])
         topics = list(TOPICS)
-        users = self.app.store.rows("SELECT * FROM product_users ORDER BY user_id")
         rows = []
+        navigation = []
         title = "⚙️ Settings"
         if parts == ["manage", "home"]:
             rows = [
@@ -141,46 +156,50 @@ class ReviewUI:
             ]
         elif parts == ["manage", "topics"]:
             rows = [[button(label, f"manage:topic:{index}")] for index, label in enumerate(TOPICS.values())]
-        elif parts == ["manage", "users"]:
+        elif parts[1] == "users" and len(parts) in (2, 3):
+            users, _, navigation = self.user_page(int(parts[2]) if len(parts) == 3 else 0, "manage:users")
             rows = [[button(user["label"], f"manage:user:{user['user_id']}")] for user in users]
-        elif len(parts) == 3 and parts[1] in ("topic", "user"):
-            if parts[1] == "topic":
-                index = int(parts[2])
-                if not 0 <= index < len(topics):
-                    return
-                title = TOPICS[topics[index]]
-                rows = [
-                    [
-                        button(
-                            (
-                                "✅ "
-                                if self.app.audience.subscriptions.allowed(user["user_id"], topics[index])
-                                else "⬜ "
-                            )
-                            + user["label"],
-                            f"manage:set:{user['user_id']}:{index}:{int(not self.app.audience.subscriptions.allowed(user['user_id'], topics[index]))}:topic",
+        elif parts[1] == "topic" and len(parts) in (3, 4):
+            index = int(parts[2])
+            if not 0 <= index < len(topics):
+                return
+            users, page, navigation = self.user_page(
+                int(parts[3]) if len(parts) == 4 else 0, f"manage:topic:{index}"
+            )
+            title = TOPICS[topics[index]]
+            rows = [
+                [
+                    button(
+                        (
+                            "✅ "
+                            if self.app.audience.subscriptions.allowed(user["user_id"], topics[index])
+                            else "⬜ "
                         )
-                    ]
-                    for user in users
+                        + user["label"],
+                        f"manage:set:{user['user_id']}:{index}:{int(not self.app.audience.subscriptions.allowed(user['user_id'], topics[index]))}:topic{f':{page}' if page else ''}",
+                    )
                 ]
-            else:
-                user_id = int(parts[2])
-                if not any(user["user_id"] == user_id for user in users):
-                    return
-                title = "👤 User " + str(user_id)
-                rows = [
-                    [
-                        button(
-                            ("✅ " if self.app.audience.subscriptions.allowed(user_id, topic) else "⬜ ")
-                            + label,
-                            f"manage:set:{user_id}:{index}:{int(not self.app.audience.subscriptions.allowed(user_id, topic))}:user",
-                        )
-                    ]
-                    for index, (topic, label) in enumerate(TOPICS.items())
+                for user in users
+            ]
+        elif parts[1] == "user" and len(parts) == 3:
+            user_id = int(parts[2])
+            if not self.app.audience.subscriptions.registered(user_id):
+                return
+            title = "👤 User " + str(user_id)
+            rows = [
+                [
+                    button(
+                        ("✅ " if self.app.audience.subscriptions.allowed(user_id, topic) else "⬜ ") + label,
+                        f"manage:set:{user_id}:{index}:{int(not self.app.audience.subscriptions.allowed(user_id, topic))}:user",
+                    )
                 ]
-        elif len(parts) == 6 and parts[1] == "set":
+                for index, (topic, label) in enumerate(TOPICS.items())
+            ]
+        elif len(parts) in (6, 7) and parts[1] == "set":
             user_id, index, enabled = map(int, parts[2:5])
             if not 0 <= index < len(topics) or enabled not in (0, 1) or parts[5] not in ("topic", "user"):
+                return
+            if not self.app.audience.subscriptions.registered(user_id):
                 return
             heads = None
             if enabled and not self.app.audience.subscriptions.allowed(user_id, topics[index]):
@@ -206,11 +225,14 @@ class ReviewUI:
                 topics[index],
                 enabled,
             )
-            return await self.management(
-                f"manage:{parts[5]}:{index if parts[5] == 'topic' else user_id}", message
-            )
+            target = f"manage:topic:{index}" if parts[5] == "topic" else f"manage:user:{user_id}"
+            if len(parts) == 7 and parts[5] == "topic":
+                target += f":{parts[6]}"
+            return await self.management(target, message)
         else:
             return
+        if navigation:
+            rows.append(navigation)
         rows.append(
             [
                 button("⬅️ Back", "manage:home" if parts != ["manage", "home"] else "home"),
@@ -658,31 +680,60 @@ class ReviewUI:
                 )
         return sent
 
+    async def registration_reply(self, recipient, text):
+        try:
+            async with self.app.send_lock:
+                await self.app.bot.send_message(recipient, text)
+        except TelegramForbiddenError:
+            log.info("registration.reply_denied recipient=%s", recipient)
+
     async def handle(self, update):
-        if (
-            not any(source.queue for source in self.app.settings.sources)
-            and not self.app.settings.home_socket
-        ):
-            return
         callback = update.callback_query
         message = callback.message if callback else update.message
         sender = callback.from_user if callback else message.from_user if message else None
         if (
             not sender
+            or sender.is_bot
             or not isinstance(message, Message)
-            or not self.app.audience.authorize(sender, message, callback)
+            or message.chat.type != "private"
+            or message.chat.id != sender.id
         ):
+            return
+        audience = self.app.audience
+        command = ""
+        words = (message.text or "").split(maxsplit=1)
+        if not callback and words:
+            command, _, target = words[0].partition("@")
+            username = self.app.settings.bot_username.lower()
+            if target and username and target.lower() != username:
+                return
+        if command == "/start":
+            audience.start(sender, message.date.timestamp())
+            await self.registration_reply(
+                sender.id, "Welcome to Personal Notifier. Open Menu or use /menu to get started."
+            )
+            return
+        if not audience.allowed(sender.id):
+            if command == "/menu" and audience.subscriptions.registered(sender.id):
+                await self.registration_reply(sender.id, "You have no active subscriptions.")
+            return
+        if (
+            not any(source.queue for source in self.app.settings.sources)
+            and not self.app.settings.home_socket
+        ):
+            if command == "/menu":
+                await self.registration_reply(sender.id, "No sections are available.")
             return
         token = self.recipient.set(sender.id)
         try:
             log.info(
                 "review.open recipient=%s operation=%s", sender.id, "callback" if callback else "command"
             )
-            await self._handle(update, message, callback)
+            await self._handle(message, callback, command)
         finally:
             self.recipient.reset(token)
 
-    async def _handle(self, update, message, callback):
+    async def _handle(self, message, callback, command):
         async with self.lock:
             pending = self.app.store.rows(
                 "SELECT topic FROM subscription_pending WHERE user_id=?", (self.recipient.get(),)
@@ -696,20 +747,16 @@ class ReviewUI:
                         self.recipient.get(),
                         type(error).__name__,
                     )
-                    await self.display("Source unavailable. Please try /start again.", None, self.menu())
+                    await self.display("Source unavailable. Please try /menu again.", None, self.menu())
                     return
                 self.app.audience.subscriptions.set(
                     self.app.settings.allowed_user_id, self.recipient.get(), row["topic"], True, heads=heads
                 )
             if not callback:
-                command = (message.text or "").split("@", 1)[0]
                 source = next(
                     (name for name, config in self.sources.items() if config.topic == "housing"), None
                 )
-                if command == "/start" and self.recipient.get() != self.app.settings.allowed_user_id:
-                    if not await self.app.housing_guide(self.recipient.get()):
-                        await self.home()
-                elif command in ("/start", "/menu"):
+                if command == "/menu":
                     await self.home()
                 elif command == "/vibecoding":
                     await self.display(

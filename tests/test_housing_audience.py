@@ -48,23 +48,116 @@ def start(user=99, username="rental_partner", chat=None):
     return Update.model_validate(value)
 
 
-async def test_only_named_private_start_pins_numeric_identity(pair):
-    await pair.handle(start(username="someoneelse"))
+async def enroll_housing(pair):
+    await pair.handle(start())
+    await pair.handle(Update.model_validate(update(owner=99, text="/menu")))
+
+
+async def test_private_start_registers_by_numeric_id_and_only_greets(pair):
     await pair.handle(start(chat=-99))
-    assert not pair.audience.members() and not pair.bot.session.calls
+    assert not pair.bot.session.calls
+    assert not pair.audience.subscriptions.registered(99)
+
+    await pair.handle(start(98, None))
+    sent = list(pair.bot.session.messages.values())[-1]
+    assert sent.chat.id == 98 and "Menu" in sent.text and sent.reply_markup is None
+    user = pair.store.one("SELECT * FROM product_user_activity WHERE user_id=98")
+    assert user["username"] is None and user["last_started_at"] is not None
+    await pair.handle(Update.model_validate(update(owner=98, text="/menu")))
+    assert list(pair.bot.session.messages.values())[-1].text == "You have no active subscriptions."
+    assert not pair.audience.allowed(98)
+    assert not pair.feeds["housing"].calls
+
+    await pair.handle(start(98, "new_username"))
+    assert (
+        pair.store.one("SELECT username FROM product_user_activity WHERE user_id=98")["username"]
+        == "new_username"
+    )
+    assert len(pair.store.rows("SELECT * FROM product_users WHERE user_id=98")) == 1
+    assert not pair.store.rows("SELECT * FROM product_subscriptions WHERE user_id=98")
+
+
+async def test_only_named_private_start_pins_numeric_identity(pair):
     await pair.handle(start())
     assert pair.audience.members()[0]["user_id"] == 99
-    assert list(pair.bot.session.messages.values())[-1].chat.id == 99
-    before = len(pair.bot.session.calls)
+    sent = list(pair.bot.session.messages.values())[-1]
+    assert sent.chat.id == 99 and sent.reply_markup is None
+    assert pair.store.one("SELECT 1 FROM subscription_pending WHERE user_id=99")
     await pair.handle(start(100))
-    assert len(pair.bot.session.calls) == before
-    # A pinned user's later username change does not transfer their identity.
+    assert pair.audience.subscriptions.registered(100)
+    assert not pair.audience.allowed(100)
+    assert pair.audience.members()[0]["user_id"] == 99
     await pair.handle(start(99, "newusername"))
     assert pair.audience.allowed(99)
 
 
+async def test_owner_can_subscribe_registered_user_and_menu_opens_enabled_topic(pair):
+    await pair.handle(start(98, "new_guest"))
+    await pair.handle(Update.model_validate(update(text="/menu")))
+    deck = list(pair.bot.session.messages.values())[-1]
+    await pair.handle(callback(deck, "manage:users"))
+    users = list(pair.bot.session.messages.values())[-1]
+    assert action(users, "@new_guest") == "manage:user:98"
+    await pair.handle(callback(users, "manage:user:98"))
+    user = list(pair.bot.session.messages.values())[-1]
+    await pair.handle(callback(user, action(user, "Housing")))
+    assert 98 in pair.audience.recipients(10)
+    await pair.handle(Update.model_validate(update(owner=98, text="/menu")))
+    guest = list(pair.bot.session.messages.values())[-1]
+    assert guest.chat.id == 98
+    assert action(guest, "Housing") == "housing:housing"
+    assert "Settings" not in str(guest.reply_markup)
+
+
+async def test_registered_user_lists_page_through_owner_settings(pair):
+    with pair.store.db:
+        for user_id in range(100, 125):
+            pair.audience.subscriptions.register(user_id, None, 1000)
+    await pair.handle(Update.model_validate(update(text="/menu")))
+    deck = list(pair.bot.session.messages.values())[-1]
+    await pair.handle(callback(deck, "manage:users"))
+    users = list(pair.bot.session.messages.values())[-1]
+    assert len(users.reply_markup.inline_keyboard) == 22
+    await pair.handle(callback(users, action(users, "Next")))
+    users = list(pair.bot.session.messages.values())[-1]
+    assert action(users, "124") == "manage:user:124"
+    assert action(users, "⬅️ Previous") == "manage:users:0"
+
+
+async def test_start_registry_migrates_existing_users_and_survives_reopen(tmp_path):
+    from personal_notifier.audience import HousingAudience
+    from personal_notifier.store import BotStore
+
+    settings = Settings(tmp_path, tmp_path / "run", tmp_path / "token", allowed_user_id=42)
+    db_path = tmp_path / "bot.db"
+    store = BotStore(db_path)
+    with store.db:
+        store.db.execute("CREATE TABLE product_users(user_id INTEGER PRIMARY KEY,label TEXT NOT NULL)")
+        store.db.execute("INSERT INTO product_users VALUES(99,'existing')")
+    audience = HousingAudience(settings, store)
+    assert audience.subscriptions.registered(99)
+    with store.db:
+        audience.subscriptions.register(98, "recent", 1000)
+        audience.subscriptions.register(98, "stale", 999)
+    store.close()
+
+    store = BotStore(db_path)
+    try:
+        audience = HousingAudience(settings, store)
+        user = store.one("SELECT username,last_started_at FROM product_user_activity WHERE user_id=98")
+        assert (user["username"], user["last_started_at"]) == ("recent", 1000)
+        assert audience.subscriptions.registered(99)
+        assert not audience.allowed(98)
+        # The previous release can still write its original two-column table after rollback.
+        with store.db:
+            store.db.execute("INSERT OR IGNORE INTO product_users VALUES(42,'Owner')")
+        assert audience.subscriptions.registered(42)
+    finally:
+        store.close()
+
+
 async def test_tokens_are_bound_to_chat_even_when_message_ids_collide(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     owner = await pair.review.browse("housing", "queue")
     ctx = pair.review.recipient.set(99)
     try:
@@ -96,7 +189,7 @@ async def test_each_recipient_gets_one_delivery_and_core_stays_owner_only(pair):
     from dataclasses import replace
 
     pair.settings = replace(pair.settings, core_enabled=True)
-    await pair.handle(start())
+    await enroll_housing(pair)
     with pair.store.db:
         pair.store.db.execute(
             "INSERT INTO feed_notices(source,event_id,body,url,priority,created) VALUES('housing',1,'🏠 Housing alert\n1 new · 3 in queue','',2,0)"
@@ -111,7 +204,7 @@ async def test_each_recipient_gets_one_delivery_and_core_stays_owner_only(pair):
 
 
 async def test_partial_failure_never_repeats_successful_recipient(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     with pair.store.db:
         pair.store.db.execute(
             "INSERT INTO feed_notices(source,event_id,body,url,priority,created) VALUES('housing',1,'Housing alert','',2,0)"
@@ -140,7 +233,7 @@ async def test_guide_is_sent_only_once_and_has_queue_entry(pair):
 
 
 async def test_owner_and_partner_counts_are_live_at_delivery_for_alerts_and_reminders(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     original = pair.feeds["housing"].queue_request
     totals = {"": 10, "99": 6}
 
@@ -160,7 +253,7 @@ async def test_owner_and_partner_counts_are_live_at_delivery_for_alerts_and_remi
 
 
 async def test_empty_personal_queue_is_skipped_durably_without_blocking_other_person(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     original = pair.feeds["housing"].queue_request
 
     async def page(*args, **kwargs):
@@ -187,7 +280,7 @@ async def test_empty_personal_queue_is_skipped_durably_without_blocking_other_pe
 
 
 async def test_old_queue_does_not_make_a_removed_new_listing_alert_valid(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     original = pair.feeds["housing"].queue_request
 
     async def removed_new(*args, **kwargs):
@@ -210,7 +303,7 @@ async def test_old_queue_does_not_make_a_removed_new_listing_alert_valid(pair):
 
 
 async def test_only_recipient_who_still_has_the_new_listing_gets_an_alert(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     original = pair.feeds["housing"].queue_request
 
     async def personal(*args, **kwargs):
@@ -241,7 +334,7 @@ async def test_opening_queue_from_digest_resets_price_order_to_publication(pair)
 
 
 async def test_management_owner_only_and_unsubscription_blocks_old_buttons(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     await pair.handle(Update.model_validate(update(text="/menu")))
     menu = list(pair.bot.session.messages.values())[-1]
     await pair.handle(callback(menu, "manage:home"))
@@ -297,7 +390,7 @@ async def test_market_uses_same_collection_ui_and_scopes_as_housing(pair):
     card = list(pair.bot.session.messages.values())[-1]
     assert "Viewed" in str(card.reply_markup)
     assert "Favorite" in str(card.reply_markup)
-    await pair.handle(start())
+    await enroll_housing(pair)
     before = len(pair.feeds["astronomy"].calls)
     await pair.handle(callback(card, "browse:astronomy:queue", owner=99))
     assert len(pair.feeds["astronomy"].calls) == before
@@ -308,7 +401,7 @@ async def test_forbidden_recipient_is_deferred_without_starving_owner_or_fake_re
 
     from aiogram.exceptions import TelegramForbiddenError
 
-    await pair.handle(start())
+    await enroll_housing(pair)
     original = pair.review.summary
     blocked = True
     attempts = []

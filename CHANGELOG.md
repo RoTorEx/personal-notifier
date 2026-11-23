@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Register users by numeric Telegram ID on every private /start and reply with a welcome that points to Menu.
+- Let the owner find registered users in Settings and grant topic access. Keep Housing invitations and source watermarks intact.
+
 ## [0.6.7] - 2026-11-23
 
 - Start Home alarms below 10 °C and reclassify any saved cold incident against the new threshold.

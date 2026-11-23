@@ -1,7 +1,7 @@
 # Personal Notifier
 
-One private Telegram notification feed for the configured numeric owner, with
-explicitly invited housing-only participants. Independent
+One private Telegram notification service for the configured numeric owner and
+people with explicitly enabled subscriptions. Independent
 sources own their data: Web Watch owns collection, cards, queue membership and
 viewed/favorite flags; Vibecoding Core owns native sessions and execution. This
 repository owns Telegram identity, event cursors, delivery receipts and review UI.
@@ -20,14 +20,23 @@ Back returns to Housing, while the final 🏠 Deck exit returns to the Home deck
 No collection switch button or counter button appears inside the carousel.
 Empty states retain Back/Deck. Home entries include emoji.
 
-The numeric allowed_user_id retains all original notices. housing_usernames
-explicitly invites housing-only users: the first private /start from the exact
-Telegram username pins its numeric ID in durable housing_members. An existing
-binding never transfers to a replacement username holder. Both sender and private
-chat ID must match before reads, writes or replies. Unlisted users and groups are
-ignored. Housing participants receive only housing notices, never Core outcomes.
-Commands remain advertised only in the owner's chat; participants can use /start,
-/menu, /housing and the same inline controls.
+The numeric allowed_user_id retains the owner scope. A private /start creates or
+updates the sender's product_users record by numeric Telegram ID. The optional
+current username and latest /start time live in product_user_activity, keeping the
+original user table compatible with rollback. Groups and bot senders are ignored.
+Every /start replies with the same short welcome and points to the separate Menu
+button. It opens no deck or guide and succeeds independently of listing producers.
+Menu (/menu) opens the user's available sections or reports that there are no active
+subscriptions. The owner can assign topics to registered users in Settings.
+
+The housing_usernames invitation list still pins the matching username and
+numeric ID in housing_members on the first private /start. A new Housing invitation
+activates on the next private product request after checking current source
+watermarks. Removing the configured invitation revokes that pinned account's
+product access. A pinned username never transfers to a replacement account.
+Both sender and private chat ID must match for registration and review. The default
+Telegram command menu advertises Menu, with Housing also available in the owner's
+command menu when the queue is configured.
 
 A small independent getUpdates loop handles only deck commands and the registered
 review callbacks. It never dispatches to historical BotRuntime, agent input,
@@ -123,9 +132,10 @@ acceptance response or crash before receipt may repeat a send: exactly-once is n
 claimed. Producer logs have no consumer acknowledgements or automatic pruning.
 Housing delivery records one receipt per source event/recipient. A partial failure
 retries only missing recipients; enrollment starts at the current event watermark
-rather than replaying historical alerts. Apartment-only membership is source-owned. Startup and a participant's first /start
-send one durable Quick guide with a View queue button per person. This guide is an
-explicitly requested one-time release notice, not a recurring reminder.
+rather than replaying historical alerts. Apartment-only membership is source-owned.
+Startup may deliver the existing durable one-time Housing Quick guide to eligible
+Housing subscribers with a pinned invitation and to the owner if subscribed.
+The guide is separate from /start.
 
 Each source, Core collection, owner polling and delivery has an independent async
 loop, bounded HTTP requests and durable offsets. A slow source cannot block others.
@@ -163,13 +173,16 @@ Existing pinned members migrate to Housing only. The owner starts subscribed to
 all supported topics; startup never overrides later subscription changes.
 Settings presents Topics → subscribers and Users → subscriptions, as two views
 of the same persisted relation. Only the numeric owner can inspect or change it.
-Existing username-based invitations remain the enrollment mechanism in this stage.
-A disabled Housing subscription excludes recipients before sending and rejects
+Registration and subscription are separate records. Owners may enable a topic for
+any registered person through the same subscription controls. User and topic
+rosters paginate in groups of 20 so Telegram always receives a bounded keyboard.
+Existing username-based Housing invitations retain their separate pin and
+watermark behavior. A disabled Housing subscription excludes recipients before sending and rejects
 source reads/writes and stale carousel callbacks. User identity and existing review
 state remain stored. Reenabling reads each connected producer through its current event watermark
 without capturing notices or advancing capture cursors. New enrollment remains
-pending with Housing disabled until the same read succeeds; a later private
-request retries it. Reads have a ten-second overall budget and at most 100 pages
+pending with Housing disabled until the same read succeeds on Menu or another
+private product request. Repeated /start leaves the pending subscription alone. Reads have a ten-second overall budget and at most 100 pages
 per producer; failure leaves the subscription unchanged. Disconnected future
 topics have no producers yet. Settings remains accessible to the owner even
 when every review subscription is disabled.

@@ -16,6 +16,9 @@ class Subscriptions:
         store.db.executescript("""
             CREATE TABLE IF NOT EXISTS product_users(
                 user_id INTEGER PRIMARY KEY, label TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS product_user_activity(
+                user_id INTEGER PRIMARY KEY, username TEXT, last_started_at REAL NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES product_users(user_id));
             CREATE TABLE IF NOT EXISTS product_subscriptions(
                 user_id INTEGER NOT NULL,topic TEXT NOT NULL,enabled INTEGER NOT NULL,
                 PRIMARY KEY(user_id,topic));
@@ -26,7 +29,9 @@ class Subscriptions:
                 PRIMARY KEY(user_id,topic,source));
         """)
         with store.db:
-            store.db.execute("INSERT OR IGNORE INTO product_users VALUES(?,?)", (owner, "Owner"))
+            store.db.execute(
+                "INSERT OR IGNORE INTO product_users(user_id,label) VALUES(?,?)", (owner, "Owner")
+            )
             if not store.get("subscriptions_migrated:v1"):
                 for topic in TOPICS:
                     store.db.execute(
@@ -47,12 +52,42 @@ class Subscriptions:
                         "INSERT OR REPLACE INTO meta VALUES(?, '1')", ("subscriptions_added:" + topic,)
                     )
 
-    def enroll(self, user_id, label, legacy=False):
-        self.store.db.execute("INSERT OR IGNORE INTO product_users VALUES(?,?)", (user_id, label))
+    def register(self, user_id, username, started_at):
+        label = "Owner" if user_id == self.owner else f"@{username}" if username else str(user_id)
         self.store.db.execute(
+            "INSERT OR IGNORE INTO product_users(user_id,label) VALUES(?,?)", (user_id, label)
+        )
+        activity = self.store.db.execute(
+            """
+            INSERT INTO product_user_activity(user_id,username,last_started_at) VALUES(?,?,?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                username=excluded.username, last_started_at=excluded.last_started_at
+            WHERE product_user_activity.last_started_at <= excluded.last_started_at
+            """,
+            (user_id, username, started_at),
+        )
+        if activity.rowcount:
+            self.store.db.execute("UPDATE product_users SET label=? WHERE user_id=?", (label, user_id))
+
+    def registered(self, user_id):
+        return self.store.one("SELECT 1 FROM product_users WHERE user_id=?", (user_id,)) is not None
+
+    def has_active(self, user_id):
+        return (
+            self.store.one(
+                "SELECT 1 FROM product_subscriptions WHERE user_id=? AND enabled=1 LIMIT 1", (user_id,)
+            )
+            is not None
+        )
+
+    def enroll(self, user_id, label, legacy=False):
+        self.store.db.execute(
+            "INSERT OR IGNORE INTO product_users(user_id,label) VALUES(?,?)", (user_id, label)
+        )
+        subscription = self.store.db.execute(
             "INSERT OR IGNORE INTO product_subscriptions VALUES(?,?,?)", (user_id, "housing", int(legacy))
         )
-        if not legacy:
+        if not legacy and subscription.rowcount:
             self.store.db.execute(
                 "INSERT OR IGNORE INTO subscription_pending VALUES(?,?)", (user_id, "housing")
             )
@@ -73,11 +108,7 @@ class Subscriptions:
     def set(self, actor, user_id, topic, enabled, heads=None):
         if actor != self.owner:
             raise PermissionError("Owner required")
-        if (
-            topic not in TOPICS
-            or type(enabled) is not bool
-            or not self.store.one("SELECT 1 FROM product_users WHERE user_id=?", (user_id,))
-        ):
+        if topic not in TOPICS or type(enabled) is not bool or not self.registered(user_id):
             raise ValueError("Unknown subscription")
         with self.store.db:
             if enabled and not self.allowed(user_id, topic):

@@ -1,8 +1,10 @@
 """Subscription migration and delivery authorization boundaries."""
 
 import pytest
+from aiogram.types import Update
+from test_bot import update
+from test_housing_audience import enroll_housing, start
 from test_housing_audience import pair as _pair
-from test_housing_audience import start
 
 from personal_notifier.subscriptions import Subscriptions
 
@@ -10,7 +12,7 @@ pair = _pair
 
 
 async def test_migration_preserves_housing_member_and_default_denies_other_topics(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     subscriptions = Subscriptions(pair.store, 42)
     assert subscriptions.allowed(99, "housing")
     assert not subscriptions.allowed(99, "home.temperature")
@@ -21,7 +23,7 @@ async def test_migration_preserves_housing_member_and_default_denies_other_topic
 
 
 async def test_only_owner_may_change_subscriptions_and_disable_blocks_delivery(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     subscriptions = Subscriptions(pair.store, 42)
     with pytest.raises(PermissionError):
         subscriptions.set(99, 42, "housing", False)
@@ -33,7 +35,7 @@ async def test_only_owner_may_change_subscriptions_and_disable_blocks_delivery(p
 
 
 async def test_resubscribe_skips_captured_backlog_per_source(pair):
-    await pair.handle(start())
+    await enroll_housing(pair)
     subscriptions = pair.audience.subscriptions
     subscriptions.set(42, 99, "housing", False)
     with pair.store.db:
@@ -67,7 +69,7 @@ async def test_enrollment_drains_uncaptured_producer_backlog_without_capturing(p
         return {"version": 1, "events": events, "next_cursor": events[-1]["id"] if events else cursor}
 
     pair.feeds["housing"].read = read
-    await pair.handle(start())
+    await enroll_housing(pair)
     assert calls == [0, 100, 200]
     assert pair.store.get("feed_cursor:housing", "0") == "0"
     assert pair.store.rows("SELECT * FROM feed_notices") == []
@@ -80,7 +82,7 @@ async def test_failed_first_enrollment_stays_closed_and_retries(pair):
         raise OSError("Unavailable")
 
     pair.feeds["housing"].read = failed
-    await pair.handle(start())
+    await enroll_housing(pair)
     assert not pair.audience.subscriptions.allowed(99, "housing")
     assert pair.store.one("SELECT 1 FROM subscription_pending WHERE user_id=99")
 
@@ -89,6 +91,8 @@ async def test_failed_first_enrollment_stays_closed_and_retries(pair):
 
     pair.feeds["housing"].read = recovered
     await pair.handle(start())
+    assert not pair.audience.subscriptions.allowed(99, "housing")
+    await pair.handle(Update.model_validate(update(owner=99, text="/menu")))
     assert pair.audience.subscriptions.allowed(99, "housing")
     assert not pair.store.one("SELECT 1 FROM subscription_pending WHERE user_id=99")
 
@@ -96,7 +100,7 @@ async def test_failed_first_enrollment_stays_closed_and_retries(pair):
 async def test_outdoor_enrollment_is_owner_only_and_restart_preserves_opt_out(pair):
     from personal_notifier.subscriptions import Subscriptions
 
-    await pair.handle(start())
+    await enroll_housing(pair)
     subs = pair.audience.subscriptions
     assert subs.allowed(42, "market.outdoor")
     assert not subs.allowed(99, "market.outdoor")
