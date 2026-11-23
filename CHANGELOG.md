@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Start Home alarms below 10 °C and reclassify any saved cold incident against the new threshold.
+
 ## [0.6.6] - 2026-11-21
 
 - Add Settings with per-topic switches for Web Watch searches. Paused collections stay browsable.

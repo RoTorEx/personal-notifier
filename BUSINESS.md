@@ -191,19 +191,20 @@ The source's latest attempt must be successful, synchronized and fresh by both
 source/receipt time. Missing/stale data is unavailable, never zero or recovery.
 
 Poll every 600 seconds normally. A new declining temperature or active cold
-incident switches to 60 seconds. Two distinct non-declining readings >=15.5 Celsius
+incident switches to 60 seconds. Two distinct non-declining readings >=10.5 Celsius
 restore normal polling and rearm the incident. A duplicate never counts twice.
-The first cold signal is strictly below 15; subsequent 0.5-degree boundaries
-(14.5,14,13.5,...) include equality and notify once per incident. A large jump
+The first cold signal is strictly below 10 °C; subsequent 0.5-degree boundaries
+(9.5, 9, 8.5, ...) include equality and notify once per incident. A large jump
 produces one current alarm. Additionally send Temperature alarm every 300 seconds
-while fresh temperature is below 15, regardless of movement. The first cold alarm
+while fresh temperature is below 10 °C, regardless of movement. The first cold alarm
 starts this cadence; intervening threshold crossings do not postpone it, and
-coincident triggers coalesce. >=15 stops repeats; recovery is quiet. All alarms
+coincident triggers coalesce. >=10 °C stops repeats; recovery is quiet. All alarms
 are available around the clock only to home.temperature subscribers.
 
-State, cadence and an outbox survive restart. Reconcile current fresh temperature
-rather than replay missed timers; stale/warm observations supersede pending cold
-warnings. Retry independently per recipient and retain actual sent readings in
+State, cadence and an outbox survive restart. On a threshold change, reclassify
+the current fresh reading and reset the saved incident bands and cadence.
+Reconcile current fresh temperature rather than replay missed timers.
+Stale or warm observations supersede pending cold warnings. Retry independently per recipient and retain actual sent readings in
 receipts. Say decreased only against that recipient's last reported temperature;
 otherwise say remains below threshold. Home has no Viewed/Favorites/queue actions.
 Its screen shows temperature, source measurement time, freshness and episode state.

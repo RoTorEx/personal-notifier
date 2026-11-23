@@ -9,6 +9,10 @@ from aiohttp import ClientSession, ClientTimeout, UnixConnector
 
 log = logging.getLogger(__name__)
 
+COLD_THRESHOLD_MILLIC = 10_000
+TEMPERATURE_STEP_MILLIC = 500
+RECOVERY_THRESHOLD_MILLIC = COLD_THRESHOLD_MILLIC + TEMPERATURE_STEP_MILLIC
+
 
 def measurement(payload, now):
     limit = payload.get("freshness_seconds")
@@ -55,26 +59,35 @@ def advance(state, sample, now):
     ):
         state["fresh"] = False
         return state, False
+    threshold_changed = state.get("threshold_millic") != COLD_THRESHOLD_MILLIC
+    if threshold_changed:
+        # Stored bands and recovery counts were relative to the old threshold.
+        state.update(active=False, warm=0, band=None, reminder_at=None)
+        state["threshold_millic"] = COLD_THRESHOLD_MILLIC
     state["fresh"] = True
     temperature = sample["temperature"]
     alert = False
-    if distinct:
-        falling = previous is not None and temperature < previous["temperature"]
-        warm = temperature >= 15500 and not falling
+    if distinct or threshold_changed:
+        falling = distinct and previous is not None and temperature < previous["temperature"]
+        warm = temperature >= RECOVERY_THRESHOLD_MILLIC and not falling
         state["warm"] = state.get("warm", 0) + 1 if warm else 0
-        state["fast"] = bool(state.get("fast") or falling or temperature < 15000)
+        state["fast"] = bool(state.get("fast") or falling or temperature < COLD_THRESHOLD_MILLIC)
         if state["warm"] >= 2:
             state.update(active=False, fast=False, band=None, reminder_at=None)
-        if temperature < 15000:
-            # First signal is strict <15; subsequent bands include their boundary.
-            band = (15000 - temperature) // 500
+        if temperature < COLD_THRESHOLD_MILLIC:
+            # Subsequent bands include their boundary.
+            band = (COLD_THRESHOLD_MILLIC - temperature) // TEMPERATURE_STEP_MILLIC
             alert = not state.get("active") or band > state.get("band", -1)
             state["active"] = True
             state["band"] = max(band, state.get("band") or 0)
             if state.get("reminder_at") is None:
                 state["reminder_at"] = now + 300
         state["sample"] = sample
-    if temperature < 15000 and state.get("active") and now >= (state.get("reminder_at") or now + 300):
+    if (
+        temperature < COLD_THRESHOLD_MILLIC
+        and state.get("active")
+        and now >= (state.get("reminder_at") or now + 300)
+    ):
         alert = True
         state["reminder_at"] = now + 300
     return state, alert
@@ -87,7 +100,7 @@ def body(sample, previous_temperature=None):
     return (
         "🌡🚨 Temperature alarm\n\n"
         + label
-        + f"\n{sample['temperature'] / 1000:g} °C · threshold 15 °C"
+        + f"\n{sample['temperature'] / 1000:g} °C · threshold {COLD_THRESHOLD_MILLIC / 1000:g} °C"
         + "\nMeasured: "
         + at.strftime("%d.%m.%Y %H:%M %Z")
         + " (UTC"
@@ -137,7 +150,7 @@ class Home:
                     "INSERT INTO home_notices(body,sample,created) VALUES(?,?,?)",
                     (body(sample, state.get("last_reported")), json.dumps(sample), now),
                 )
-            elif sample and state.get("fresh") and sample["temperature"] < 15000:
+            elif sample and state.get("fresh") and sample["temperature"] < COLD_THRESHOLD_MILLIC:
                 # Preserve a still-current undelivered alarm across transient send failures.
                 row = self.app.store.one("SELECT id,sample FROM home_notices ORDER BY id DESC LIMIT 1")
                 pending = row and any(
@@ -160,7 +173,12 @@ class Home:
 
     async def deliver(self, sample, now):
         row = self.app.store.one("SELECT * FROM home_notices WHERE superseded=0 ORDER BY id DESC LIMIT 1")
-        if not row or not sample or not self.state.get("fresh") or sample["temperature"] >= 15000:
+        if (
+            not row
+            or not sample
+            or not self.state.get("fresh")
+            or sample["temperature"] >= COLD_THRESHOLD_MILLIC
+        ):
             return
         for recipient in self.app.audience.subscriptions.recipients("home.temperature", "home", row["id"]):
             if not self.app.audience.allowed(recipient) or self.app.store.one(
