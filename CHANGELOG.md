@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Round temperature readings to one decimal place in Home and its alerts.
+
 ## [0.6.8] - 2026-11-23
 
 - Register users by numeric Telegram ID on every private /start and reply with a welcome that points to Menu.

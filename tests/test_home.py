@@ -4,14 +4,42 @@ from dataclasses import replace
 
 from test_housing_audience import pair as _pair
 from test_housing_audience import start
+from test_review_ui import callback
 
-from personal_notifier.home import Home, advance, measurement
+from personal_notifier.home import Home, advance, body, format_temperature, measurement
 
 pair = _pair
 
 
 def sample(t, at=1000):
     return {"id": str(at), "at": at * 1000, "received": at * 1000, "temperature": t}
+
+
+def test_temperature_display_rounds_to_tenths_without_changing_alarm_threshold():
+    assert format_temperature(14388) == "14.4 °C"
+    assert format_temperature(14400) == "14.4 °C"
+    assert format_temperature(14000) == "14.0 °C"
+    assert format_temperature(14350) == "14.4 °C"
+    assert format_temperature(-14350) == "-14.4 °C"
+    assert "9.8 °C · threshold 10 °C" in body(sample(9824))
+    assert "10.0 °C (rounded) · threshold 10 °C" in body(sample(9999))
+    assert advance({}, sample(9999), 1000)[1]
+    assert not advance({}, sample(10000), 1000)[1]
+
+
+async def test_home_menu_shows_the_same_rounded_reading(pair):
+    import time
+
+    pair.settings = replace(pair.settings, home_socket=pair.settings.runtime_dir / "metrics.sock")
+    pair.home = Home(pair)
+    now = int(time.time())
+    pair.home.capture(sample(14388, now), now)
+
+    deck = await pair.review.home()
+    await pair.handle(callback(deck, "home:temperature"))
+    view = pair.bot.session.messages[deck.message_id]
+    assert "14.4 °C" in view.text
+    assert "14.388" not in view.text
 
 
 def test_thresholds_periodic_cadence_oscillation_and_recovery():

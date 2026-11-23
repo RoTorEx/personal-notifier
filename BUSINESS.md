@@ -220,7 +220,10 @@ Reconcile current fresh temperature rather than replay missed timers.
 Stale or warm observations supersede pending cold warnings. Retry independently per recipient and retain actual sent readings in
 receipts. Say decreased only against that recipient's last reported temperature;
 otherwise say remains below threshold. Home has no Viewed/Favorites/queue actions.
-Its screen shows temperature, source measurement time, freshness and episode state.
+The Home screen shows temperature, source measurement time, freshness and episode
+state. Both the screen and alarms display readings rounded to tenths of a degree.
+Alarm decisions use the original measurement. A cold alarm that rounds to the
+threshold labels the reading as rounded.
 Only the owner is subscribed initially; housing members retain their existing
 scope. Technical collection/availability policy stays with Node Tools/Radar.
 Normal polling may detect the first drop up to ten minutes late and miss dips

@@ -93,14 +93,24 @@ def advance(state, sample, now):
     return state, alert
 
 
+def format_temperature(temperature_millic):
+    tenths = (abs(temperature_millic) + 50) // 100
+    if temperature_millic < 0:
+        tenths = -tenths
+    return f"{tenths / 10:.1f} °C"
+
+
 def body(sample, previous_temperature=None):
     lower = previous_temperature is not None and sample["temperature"] < previous_temperature
     label = "Temperature decreased" if lower else "Temperature remains below threshold"
     at = datetime.fromtimestamp(sample["at"] / 1000, ZoneInfo("Europe/Warsaw"))
+    reading = format_temperature(sample["temperature"])
+    if reading == format_temperature(COLD_THRESHOLD_MILLIC):
+        reading += " (rounded)"
     return (
         "🌡🚨 Temperature alarm\n\n"
         + label
-        + f"\n{sample['temperature'] / 1000:g} °C · threshold {COLD_THRESHOLD_MILLIC / 1000:g} °C"
+        + f"\n{reading} · threshold {COLD_THRESHOLD_MILLIC / 1000:g} °C"
         + "\nMeasured: "
         + at.strftime("%d.%m.%Y %H:%M %Z")
         + " (UTC"

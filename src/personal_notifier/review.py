@@ -791,8 +791,10 @@ class ReviewUI:
                     from datetime import datetime
                     from zoneinfo import ZoneInfo
 
+                    from personal_notifier.home import format_temperature
+
                     measured = datetime.fromtimestamp(sample["at"] / 1000, ZoneInfo("Europe/Warsaw"))
-                    text = f"🌡 Home\n\n{sample['temperature'] / 1000:g} °C\nMeasured: {measured:%d.%m.%Y %H:%M %Z}\n"
+                    text = f"🌡 Home\n\n{format_temperature(sample['temperature'])}\nMeasured: {measured:%d.%m.%Y %H:%M %Z}\n"
                     text += "Alarm active" if state.get("active") else "No active alarm"
                     if not state.get("fresh") or __import__("time").time() * 1000 > sample.get(
                         "valid_until", sample["at"] + 360000
