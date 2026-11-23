@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-11-23
+
 - Start Home alarms below 10 °C and reclassify any saved cold incident against the new threshold.
 
 ## [0.6.6] - 2026-11-21
