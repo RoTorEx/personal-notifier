@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-11-23
+
 - Round temperature readings to one decimal place in Home and its alerts.
 
 ## [0.6.8] - 2026-11-23
