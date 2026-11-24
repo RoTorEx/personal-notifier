@@ -36,7 +36,7 @@ This project uses committed local copies of the Vibecoding Kernel.
 
 ## Project routing
 
-- Work personally, without subagents.
+- Work personally by default; use subagents only with the user's explicit permission.
 - This repository owns Personal Notifier; the sibling repository owns the other component.
 - Read BUSINESS.md and the relevant docs before changing behavior or deployment.
 - Run make check. Production code must not import the sibling implementation.
